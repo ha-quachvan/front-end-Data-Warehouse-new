@@ -51,7 +51,12 @@ export type DeliveryRoute = {
   low_review_rate: number;
 };
 
-export type ReviewByDelay = { bucket: string; orders: number; avg_review_score: number; low_review_rate: number };
+export type ReviewByDelay = {
+  bucket: string;
+  orders: number;
+  avg_review_score: number;
+  low_review_rate: number;
+};
 
 // ---------- Ops console (DSS: rủi ro giao trễ / review thấp) ----------
 
@@ -107,8 +112,17 @@ export type ModelMetrics = {
 
 export type FeatureImportance = { feature: string; importance: number };
 
-export type WhatIfState = { risk_score: number; risk_level: string } & Record<string, number | string | null>;
-export type WhatIfResult = { order_id: string; model: RiskModel; threshold: number; before: WhatIfState; after: WhatIfState };
+export type WhatIfState = { risk_score: number; risk_level: string } & Record<
+  string,
+  number | string | null
+>;
+export type WhatIfResult = {
+  order_id: string;
+  model: RiskModel;
+  threshold: number;
+  before: WhatIfState;
+  after: WhatIfState;
+};
 
 export type Campaign = {
   campaign_code: string;
@@ -121,7 +135,14 @@ export type CampaignTargets = {
   campaign_code: string;
   total: number;
   avg_risk: number | null;
-  customers: { customer_id: string; city: string; state: string; order_id: string; risk_score: number; assigned_at: string }[];
+  customers: {
+    customer_id: string;
+    city: string;
+    state: string;
+    order_id: string;
+    risk_score: number;
+    assigned_at: string;
+  }[];
 };
 
 // ---------- Công cụ dự đoán rủi ro cho đơn giả định ----------
@@ -152,29 +173,61 @@ export type PredictInput = {
   payment_type?: string | null;
 };
 
-export type RouteDistance = { seller_state: string; customer_state: string; distance_km: number; source: string; orders: number };
+export type RouteDistance = {
+  seller_state: string;
+  customer_state: string;
+  distance_km: number;
+  source: string;
+  orders: number;
+};
 
 export type PredictResult = {
   model: RiskModel;
   risk_score: number;
   risk_level: "High" | "Medium" | "Low";
   threshold: number;
-  inputs_used: { feature: string; value: number | string | null; source: string }[];
+  inputs_used: {
+    feature: string;
+    value: number | string | null;
+    source: string;
+  }[];
   derived: Record<string, number | null>;
-  route_history: { orders: number; late_rate: number | null; low_review_rate: number | null } | null;
+  route_history: {
+    orders: number;
+    late_rate: number | null;
+    low_review_rate: number | null;
+  } | null;
 };
 
-export type RevenueFilters = { year?: string; category?: string; region?: string };
+export type RevenueFilters = {
+  year?: string;
+  category?: string;
+  region?: string;
+};
 
-async function getJSON<T>(path: string, method = "GET", body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+async function getJSON<T>(
+  path: string,
+  method = "GET",
+  body?: unknown,
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL.replace(/\/$/, "")}${path}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch {
+    throw new Error(
+      "Không kết nối được máy chủ dữ liệu. Kiểm tra backend và cấu hình VITE_API_BASE_URL, rồi tải lại trang.",
+    );
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    throw new Error(`API error ${res.status} on ${path}${data?.detail ? ` — ${data.detail}` : ""}`);
+    throw new Error(
+      `API error ${res.status} on ${path}${data?.detail ? ` — ${data.detail}` : ""}`,
+    );
   }
   return res.json();
 }
@@ -194,34 +247,70 @@ export const api = {
     return getJSON<RevenueRow[]>(`/dashboard/revenue-trend${q ? `?${q}` : ""}`);
   },
   topProducts: (limit = 10, ascending = false) =>
-    getJSON<TopProduct[]>(`/dashboard/top-products?limit=${limit}&ascending=${ascending}`),
-  deliveryTrend: (region?: string) => getJSON<DeliveryTrendRow[]>(`/dashboard/delivery-trend?${qs({ region })}`),
-  deliveryRoutes: (limit = 10) => getJSON<DeliveryRoute[]>(`/dashboard/delivery-routes?limit=${limit}`),
+    getJSON<TopProduct[]>(
+      `/dashboard/top-products?limit=${limit}&ascending=${ascending}`,
+    ),
+  deliveryTrend: (region?: string) =>
+    getJSON<DeliveryTrendRow[]>(`/dashboard/delivery-trend?${qs({ region })}`),
+  deliveryRoutes: (limit = 10) =>
+    getJSON<DeliveryRoute[]>(`/dashboard/delivery-routes?limit=${limit}`),
   reviewByDelay: () => getJSON<ReviewByDelay[]>("/dashboard/review-by-delay"),
   // Ops console
-  riskSummary: (model: RiskModel) => getJSON<RiskSummaryRow[]>(`/risk/${model}/summary`),
-  riskyOrders: (model: RiskModel, params: { scope?: string; level?: string; limit?: number } = {}) =>
-    getJSON<RiskyOrder[]>(`/risk/${model}/orders?${qs(params)}`),
+  riskSummary: (model: RiskModel) =>
+    getJSON<RiskSummaryRow[]>(`/risk/${model}/summary`),
+  riskyOrders: (
+    model: RiskModel,
+    params: { scope?: string; level?: string; limit?: number } = {},
+  ) => getJSON<RiskyOrder[]>(`/risk/${model}/orders?${qs(params)}`),
   riskMetrics: () => getJSON<ModelMetrics[]>("/risk/metrics"),
   featureImportance: (model: RiskModel, limit = 8) =>
     getJSON<FeatureImportance[]>(`/risk/${model}/importance?limit=${limit}`),
-  whatIf: (model: RiskModel, orderId: string, overrides: Record<string, number>) =>
-    getJSON<WhatIfResult>(`/risk/${model}/what-if`, "POST", { order_id: orderId, overrides }),
+  whatIf: (
+    model: RiskModel,
+    orderId: string,
+    overrides: Record<string, number>,
+  ) =>
+    getJSON<WhatIfResult>(`/risk/${model}/what-if`, "POST", {
+      order_id: orderId,
+      overrides,
+    }),
   // Công cụ dự đoán
   predictOptions: () => getJSON<PredictOptions>("/risk/predict/options"),
   routeDistance: (sellerState: string, customerState: string) =>
-    getJSON<RouteDistance>(`/risk/predict/distance?${qs({ seller_state: sellerState, customer_state: customerState })}`),
-  predict: (model: RiskModel, input: PredictInput) => getJSON<PredictResult>(`/risk/${model}/predict`, "POST", input),
+    getJSON<RouteDistance>(
+      `/risk/predict/distance?${qs({ seller_state: sellerState, customer_state: customerState })}`,
+    ),
+  predict: (model: RiskModel, input: PredictInput) =>
+    getJSON<PredictResult>(`/risk/${model}/predict`, "POST", input),
   // Campaign chăm sóc
   campaigns: () => getJSON<Campaign[]>("/campaigns"),
   createCampaign: (campaignName: string, description: string) =>
-    getJSON<Campaign>("/campaigns", "POST", { campaign_name: campaignName, description }),
+    getJSON<Campaign>("/campaigns", "POST", {
+      campaign_name: campaignName,
+      description,
+    }),
   updateCampaign: (code: string, campaignName: string, description: string) =>
-    getJSON<Campaign>(`/campaigns/${encodeURIComponent(code)}`, "PUT", { campaign_name: campaignName, description }),
-  deleteCampaign: (code: string) => getJSON<{ deleted_targets: number }>(`/campaigns/${encodeURIComponent(code)}`, "DELETE"),
+    getJSON<Campaign>(`/campaigns/${encodeURIComponent(code)}`, "PUT", {
+      campaign_name: campaignName,
+      description,
+    }),
+  deleteCampaign: (code: string) =>
+    getJSON<{ deleted_targets: number }>(
+      `/campaigns/${encodeURIComponent(code)}`,
+      "DELETE",
+    ),
   campaignTargets: (code: string, limit: number) =>
-    getJSON<CampaignTargets>(`/campaigns/${encodeURIComponent(code)}/targets?limit=${limit}`),
+    getJSON<CampaignTargets>(
+      `/campaigns/${encodeURIComponent(code)}/targets?limit=${limit}`,
+    ),
   assignRiskyCustomers: (code: string, minRisk: number) =>
-    getJSON<{ inserted: number }>(`/campaigns/${encodeURIComponent(code)}/targets?min_risk=${minRisk}`, "POST"),
-  clearTargets: (code: string) => getJSON<{ deleted: number }>(`/campaigns/${encodeURIComponent(code)}/targets`, "DELETE"),
+    getJSON<{ inserted: number }>(
+      `/campaigns/${encodeURIComponent(code)}/targets?min_risk=${minRisk}`,
+      "POST",
+    ),
+  clearTargets: (code: string) =>
+    getJSON<{ deleted: number }>(
+      `/campaigns/${encodeURIComponent(code)}/targets`,
+      "DELETE",
+    ),
 };
