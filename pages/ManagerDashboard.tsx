@@ -1,4 +1,9 @@
-import { categoryName, stateName } from "../utils/format";
+import {
+  categoryName,
+  stateName,
+  delayBucketName,
+  regionName,
+} from "../utils/format";
 import { useEffect, useState } from "react";
 import {
   Bar,
@@ -41,14 +46,14 @@ function KpiCard({ label, value }: { label: string; value: string }) {
 }
 
 const brl = (v: number) =>
-  v.toLocaleString("pt-BR", {
+  v.toLocaleString("en-US", {
     style: "currency",
     currency: "BRL",
     maximumFractionDigits: 0,
   });
 // Nhãn trục gọn: R$ 1,2 mi / R$ 300 mil
 const brlCompact = (v: number) =>
-  v.toLocaleString("pt-BR", {
+  v.toLocaleString("en-US", {
     style: "currency",
     currency: "BRL",
     notation: "compact",
@@ -107,21 +112,21 @@ function DeliverySection() {
       })
       .catch(() =>
         setError(
-          "Không tải được dữ liệu giao hàng. Vui lòng kiểm tra kết nối backend.",
+          "Unable to load delivery data. Please check the backend connection.",
         ),
       );
   }, []);
 
   return (
     <section style={{ marginBottom: 32 }}>
-      <h2 style={{ fontSize: 16 }}>Giao hàng và mức độ hài lòng</h2>
+      <h2 style={{ fontSize: 16 }}>Delivery & customer satisfaction</h2>
       {error && (
         <p role="alert" className="notice error">
           {error}
         </p>
       )}
       <h3 style={{ fontSize: 14 }}>
-        Tỷ lệ giao trễ và tỷ lệ review thấp (≤ 2 sao) theo tháng mua
+        Late delivery and low rating rates (≤ 2 stars) by purchase month
       </h3>
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={trend} margin={{ right: 48 }}>
@@ -133,7 +138,7 @@ function DeliverySection() {
           <Line
             type="monotone"
             dataKey="late_rate"
-            name="Giao trễ"
+            name="Late delivery"
             stroke="#dc2626"
             strokeWidth={2}
             dot={false}
@@ -142,7 +147,7 @@ function DeliverySection() {
           <Line
             type="monotone"
             dataKey="low_review_rate"
-            name="Review thấp"
+            name="Low ratings"
             stroke="#158678"
             strokeWidth={2}
             dot={false}
@@ -151,16 +156,19 @@ function DeliverySection() {
         </LineChart>
       </ResponsiveContainer>
 
-      <h3 style={{ fontSize: 14 }}>Review theo mức trễ so với ngày hẹn</h3>
+      <h3 style={{ fontSize: 14 }}>Low ratings by delivery delay</h3>
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={byDelay} margin={{ right: 48 }}>
           <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="bucket" />
+          <XAxis dataKey="bucket" tickFormatter={delayBucketName} />
           <YAxis tickFormatter={(v: number) => `${Math.round(v * 100)}%`} />
-          <Tooltip formatter={(v: number, name: string) => [pct(v), name]} />
+          <Tooltip
+            labelFormatter={(value) => delayBucketName(String(value))}
+            formatter={(v: number, name: string) => [pct(v), name]}
+          />
           <Bar
             dataKey="low_review_rate"
-            name="Tỷ lệ review thấp"
+            name="Low rating rate"
             fill="#158678"
             isAnimationActive={false}
           />
@@ -168,7 +176,8 @@ function DeliverySection() {
       </ResponsiveContainer>
 
       <h3 style={{ fontSize: 14 }}>
-        10 tuyến giao trễ nhiều nhất (bang người bán → bang khách, ≥ 200 đơn)
+        Top 10 routes by late delivery rate (seller → customer state, ≥ 200
+        orders)
       </h3>
       <div className="table-scroll">
         <table
@@ -177,12 +186,12 @@ function DeliverySection() {
           <thead>
             <tr>
               {[
-                "Tuyến",
-                "Số đơn",
-                "Tỷ lệ trễ",
-                "Ngày giao TB",
-                "Ngày hẹn TB",
-                "Review thấp",
+                "Route",
+                "Orders",
+                "Late delivery rate",
+                "Avg. delivery days",
+                "Avg. estimated days",
+                "Low ratings",
               ].map((h) => (
                 <th key={h} style={headCell}>
                   {h}
@@ -193,7 +202,7 @@ function DeliverySection() {
           <tbody>
             {routes.map((r) => (
               <tr key={`${r.seller_state}-${r.customer_state}`}>
-                <td style={cell}>
+                <td style={{ ...cell, minWidth: 220 }}>
                   {stateName(r.seller_state)} → {stateName(r.customer_state)}
                 </td>
                 <td style={cell}>{r.delivered_orders}</td>
@@ -219,12 +228,12 @@ function ProductTable({ rows }: { rows: TopProduct[] }) {
         <thead>
           <tr>
             {[
-              "product_id",
-              "Ngành",
-              "Doanh thu",
-              "Số lượng",
-              "Số đơn",
-              "Review TB",
+              "Product ID",
+              "Category",
+              "Revenue",
+              "Quantity",
+              "Orders",
+              "Avg. rating",
             ].map((h) => (
               <th key={h} style={headCell}>
                 {h}
@@ -294,9 +303,7 @@ export default function ManagerDashboard() {
       .catch(() => {
         if (!stale) {
           setRevenue([]);
-          setRevenueError(
-            "Không tải được doanh thu. Vui lòng thử tải lại trang.",
-          );
+          setRevenueError("Unable to load revenue. Please reload the page.");
         }
       })
       .finally(() => {
@@ -335,10 +342,14 @@ export default function ManagerDashboard() {
         value={filters[key] ?? ""}
         onChange={(e) => setFilters({ ...filters, [key]: e.target.value })}
       >
-        <option value="">Tất cả</option>
+        <option value="">All</option>
         {options.map((o) => (
           <option key={o} value={o}>
-            {key === "category" ? categoryName(o) : o}
+            {key === "category"
+              ? categoryName(o)
+              : key === "region"
+                ? regionName(o)
+                : o}
           </option>
         ))}
       </select>
@@ -356,40 +367,35 @@ export default function ManagerDashboard() {
     >
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>Manager Dashboard</h1>
       <p style={{ color: "#666", marginTop: 0 }}>
-        Doanh thu, hiệu suất sản phẩm và xu hướng mua sắm — dữ liệu Olist (BRL)
+        Revenue, product performance and purchasing trends — Olist data (BRL)
       </p>
 
       {error && (
-        <p style={{ color: "crimson" }}>
-          Không kết nối được backend-api: {error}
-        </p>
+        <p style={{ color: "crimson" }}>Unable to load data: {error}</p>
       )}
 
       <div className="kpi-grid">
         <KpiCard
-          label="Tổng doanh thu"
+          label="Total revenue"
           value={kpi ? brl(kpi.total_revenue) : "—"}
         />
         <KpiCard
-          label="Tổng số đơn"
-          value={kpi ? kpi.total_orders.toLocaleString("vi-VN") : "—"}
+          label="Total orders"
+          value={kpi ? kpi.total_orders.toLocaleString("en-US") : "—"}
         />
+        <KpiCard label="Average order value" value={kpi ? brl(kpi.aov) : "—"} />
         <KpiCard
-          label="AOV (giá trị đơn TB)"
-          value={kpi ? brl(kpi.aov) : "—"}
-        />
-        <KpiCard
-          label="Điểm review TB"
+          label="Average rating"
           value={kpi ? kpi.avg_review_score.toFixed(2) + " / 5" : "—"}
         />
         <KpiCard
-          label="Tỷ lệ giao trễ"
+          label="Late delivery rate"
           value={kpi ? (kpi.late_delivery_rate * 100).toFixed(1) + "%" : "—"}
         />
       </div>
 
       <section style={{ marginBottom: 32 }}>
-        <h2 style={{ fontSize: 16 }}>Doanh thu theo thời gian và khu vực</h2>
+        <h2 style={{ fontSize: 16 }}>Revenue over time & by region</h2>
         <div
           style={{
             display: "flex",
@@ -399,14 +405,14 @@ export default function ManagerDashboard() {
             marginBottom: 12,
           }}
         >
-          {filterSelect("year", "Năm", years)}
-          {filterSelect("category", "Ngành", categories)}
-          {filterSelect("region", "Vùng", regions)}
-          <button onClick={() => setFilters({})}>Bỏ lọc</button>
+          {filterSelect("year", "Year", years)}
+          {filterSelect("category", "Category", categories)}
+          {filterSelect("region", "Region", regions)}
+          <button onClick={() => setFilters({})}>Clear filters</button>
           <span className="filtered-total">
-            Tổng theo bộ lọc:{" "}
+            Filtered total:{" "}
             {revenueLoading
-              ? "Đang tải…"
+              ? "Loading…"
               : revenueError
                 ? "—"
                 : brl(filteredTotal)}
@@ -419,18 +425,20 @@ export default function ManagerDashboard() {
           </p>
         )}
         {!revenueLoading && !revenueError && revenue.length === 0 && (
-          <p className="empty-state">Không có doanh thu phù hợp với bộ lọc.</p>
+          <p className="empty-state">
+            No revenue matches the selected filters.
+          </p>
         )}
         <p className="section-note">
-          Bộ lọc áp dụng cho doanh thu theo thời gian, theo bang và tổng bên
-          dưới. KPI là số liệu toàn bộ dữ liệu.
+          Filters apply to revenue over time, revenue by state and the filtered
+          total. KPI cards show the full dataset.
         </p>
         <ResponsiveContainer width="100%" height={280}>
           <LineChart data={revenueByMonth} margin={{ right: 48 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="label" />
             <YAxis width={90} tickFormatter={brlCompact} />
-            <Tooltip formatter={(v: number) => [brl(v), "Doanh thu"]} />
+            <Tooltip formatter={(v: number) => [brl(v), "Revenue"]} />
             <Line
               type="monotone"
               dataKey="total_revenue"
@@ -442,7 +450,7 @@ export default function ManagerDashboard() {
           </LineChart>
         </ResponsiveContainer>
 
-        <h3 style={{ fontSize: 14 }}>Doanh thu theo bang</h3>
+        <h3 style={{ fontSize: 14 }}>Revenue by state</h3>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={revenueByState} margin={{ right: 48 }}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -450,7 +458,7 @@ export default function ManagerDashboard() {
             <YAxis width={90} tickFormatter={brlCompact} />
             <Tooltip
               labelFormatter={(label) => stateName(String(label))}
-              formatter={(v: number) => [brl(v), "Doanh thu"]}
+              formatter={(v: number) => [brl(v), "Revenue"]}
             />
             <Bar
               dataKey="total_revenue"
@@ -464,14 +472,13 @@ export default function ManagerDashboard() {
       <DeliverySection />
 
       <section>
-        <h2 style={{ fontSize: 16 }}>
-          10 sản phẩm bán chậm nhất (doanh thu thấp nhất)
-        </h2>
+        <h2 style={{ fontSize: 16 }}>10 lowest-revenue products</h2>
         <p className="section-note">
-          Dataset không có tên sản phẩm. Di chuột lên mã để xem mã đầy đủ.
+          Product names are not available in this dataset. Hover over an ID to
+          see it in full.
         </p>
         {slowProducts.length === 0 ? (
-          <p className="empty-state">Chưa có dữ liệu sản phẩm.</p>
+          <p className="empty-state">No product data available.</p>
         ) : (
           <ProductTable rows={slowProducts} />
         )}

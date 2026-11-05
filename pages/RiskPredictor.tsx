@@ -1,4 +1,4 @@
-import { optionName } from "../utils/format";
+import { optionName, inputSourceName } from "../utils/format";
 import { useEffect, useRef, useState } from "react";
 import {
   api,
@@ -32,22 +32,22 @@ const td = { padding: "4px 8px" };
 
 // Tên dễ hiểu cho các đặc trưng trả về trong inputs_used / derived
 const FEATURE_LABEL: Record<string, string> = {
-  distance_km: "Khoảng cách người bán → khách (km)",
-  estimated_days: "Số ngày hẹn giao",
-  shipping_limit_days: "Hạn bàn giao (ngày sau khi mua)",
-  approval_hours: "Thời gian duyệt đơn (giờ)",
-  carrier_days: "Bàn giao vận chuyển (ngày sau khi mua)",
-  actual_days: "Giao tới khách (ngày sau khi mua)",
-  delay_days: "Trễ so với ngày hẹn (ngày)",
-  n_items: "Số sản phẩm",
-  total_price: "Giá trị đơn (R$)",
-  total_freight: "Phí ship (R$)",
-  total_weight_g: "Khối lượng (g)",
-  total_volume_cm3: "Thể tích (cm³)",
-  payment_installments: "Số kỳ trả góp",
-  payment_type: "Hình thức thanh toán",
-  slack_days: "Còn bao nhiêu ngày tới hạn giao khi bàn giao",
-  handoff_vs_limit_days: "Bàn giao muộn so với hạn (ngày, > 0 là muộn)",
+  distance_km: "Seller → customer distance (km)",
+  estimated_days: "Estimated delivery time (days)",
+  shipping_limit_days: "Handoff deadline (days after purchase)",
+  approval_hours: "Order approval time (hours)",
+  carrier_days: "Carrier handoff (days after purchase)",
+  actual_days: "Delivery (days after purchase)",
+  delay_days: "Delay past estimated delivery (days)",
+  n_items: "Number of items",
+  total_price: "Order value (R$)",
+  total_freight: "Shipping cost (R$)",
+  total_weight_g: "Weight (g)",
+  total_volume_cm3: "Volume (cm³)",
+  payment_installments: "Payment installments",
+  payment_type: "Payment method",
+  slack_days: "Days until estimated delivery at handoff",
+  handoff_vs_limit_days: "Handoff delay past deadline (days; > 0 means late)",
 };
 
 type OrderForm = {
@@ -68,7 +68,7 @@ const toDate = (v: string) => (v === "" ? null : v);
 const addDays = (isoDate: string, days: number) => {
   const d = new Date(`${isoDate}T00:00:00`);
   d.setDate(d.getDate() + Math.floor(days));
-  return d.toLocaleDateString("vi-VN", {
+  return d.toLocaleDateString("en-US", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -123,7 +123,7 @@ function ResultView({
           {pct(result.risk_score)}
         </span>
         <span style={{ fontSize: 16, fontWeight: 600, color }}>
-          Mức {result.risk_level}
+          Risk level {result.risk_level}
         </span>
       </div>
       {/* Thanh rủi ro: vạch đứt = ngưỡng Medium (t/2) và High (t) */}
@@ -158,21 +158,21 @@ function ResultView({
         ))}
       </div>
       <p style={{ fontSize: 12, color: "#666", margin: 0 }}>
-        High khi ≥ {pct(result.threshold)}, Medium khi ≥{" "}
-        {pct(result.threshold / 2)} (ngưỡng theo chi phí nghiệp vụ).
+        High at ≥ {pct(result.threshold)}, Medium at ≥{" "}
+        {pct(result.threshold / 2)} (thresholds based on business costs).
       </p>
       {history && (
         <p style={{ fontSize: 13 }}>
-          Lịch sử tuyến này: {history.orders.toLocaleString("vi-VN")} đơn,{" "}
+          Route history: {history.orders.toLocaleString("en-US")} orders,{" "}
           {model === "late_delivery"
-            ? "tỷ lệ giao trễ"
-            : "tỷ lệ review ≤ 2 sao"}{" "}
+            ? "late delivery rate"
+            : "rate of ratings ≤ 2 stars"}{" "}
           <b>{pct(historyRate)}</b>.
         </p>
       )}
       <details>
         <summary style={{ fontSize: 13, cursor: "pointer" }}>
-          Giá trị mô hình đã dùng ({result.inputs_used.length} đặc trưng)
+          Model inputs ({result.inputs_used.length} features)
         </summary>
         <div className="table-scroll">
           <table
@@ -185,9 +185,9 @@ function ResultView({
           >
             <thead>
               <tr>
-                <th style={th}>Đặc trưng</th>
-                <th style={th}>Giá trị</th>
-                <th style={th}>Nguồn</th>
+                <th style={th}>Feature</th>
+                <th style={th}>Value</th>
+                <th style={th}>Source</th>
               </tr>
             </thead>
             <tbody>
@@ -195,7 +195,7 @@ function ResultView({
                 <tr key={f} style={{ background: "#eff6ff" }}>
                   <td style={td}>{FEATURE_LABEL[f] ?? f}</td>
                   <td style={td}>{v ?? "—"}</td>
-                  <td style={td}>tính từ các ngày</td>
+                  <td style={td}>Calculated from dates</td>
                 </tr>
               ))}
               {result.inputs_used.map((r) => (
@@ -211,7 +211,7 @@ function ResultView({
                       fontStyle: r.source === "nhập" ? "normal" : "italic",
                     }}
                   >
-                    {r.source}
+                    {inputSourceName(r.source)}
                   </td>
                 </tr>
               ))}
@@ -219,7 +219,8 @@ function ResultView({
           </table>
         </div>
         <p style={{ fontSize: 12, color: "#666" }}>
-          Dòng chữ xám = giá trị điển hình hệ thống tự điền vì bạn không nhập.
+          Gray rows are typical values filled in automatically for fields left
+          blank.
         </p>
       </details>
     </div>
@@ -295,7 +296,7 @@ function ToolCard({
           disabled={!ready || loading}
           style={{ padding: "6px 16px" }}
         >
-          {loading ? "Đang tính…" : "Dự đoán"}
+          {loading ? "Calculating…" : "Predict"}
         </button>
       </div>
       {error && <p style={{ color: "crimson", fontSize: 13 }}>{error}</p>}
@@ -415,44 +416,42 @@ export default function RiskPredictor() {
       }}
     >
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>
-        Dự đoán rủi ro cho một đơn
+        Predict risk for an order
       </h1>
       <p style={{ color: "#666", marginTop: 0 }}>
-        Nhập thông tin đơn hàng → mô hình đã train (HGB) trả về xác suất giao
-        trễ / nhận review ≤ 2 sao. Thông tin không nhập sẽ được điền bằng giá
-        trị điển hình của tuyến / ngành hàng.
+        Enter order details to estimate the probability of late delivery or a
+        rating of 2 stars or less using the trained HGB model. Blank fields use
+        typical values for the route or category.
       </p>
       {error && (
-        <p style={{ color: "crimson" }}>
-          Không kết nối được backend-api: {error}
-        </p>
+        <p style={{ color: "crimson" }}>Unable to load data: {error}</p>
       )}
 
       <section style={{ ...card, marginBottom: 16 }}>
-        <h2 style={{ fontSize: 16, margin: "0 0 12px" }}>Thông tin đơn</h2>
+        <h2 style={{ fontSize: 16, margin: "0 0 12px" }}>Order details</h2>
         {options && (
           <>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
               <label style={label}>
-                Bang người bán
+                Seller state
                 <Select
                   value={form.seller_state}
-                  accessibleLabel="Bang người bán"
+                  accessibleLabel="Seller state"
                   values={options.seller_state}
                   onChange={set("seller_state")}
                 />
               </label>
               <label style={label}>
-                Bang khách
+                Customer state
                 <Select
                   value={form.customer_state}
-                  accessibleLabel="Bang khách"
+                  accessibleLabel="Customer state"
                   values={options.customer_state}
                   onChange={set("customer_state")}
                 />
               </label>
               <label style={label}>
-                Khoảng cách (km)
+                Distance (km)
                 <input
                   type="number"
                   min={0}
@@ -462,10 +461,10 @@ export default function RiskPredictor() {
                 />
                 <span style={{ fontSize: 11, color: "#888", maxWidth: 170 }}>
                   {!typicalDistance ? (
-                    "Đang tính…"
+                    "Calculating…"
                   ) : distanceEdited ? (
                     <>
-                      Bạn đã sửa ·{" "}
+                      Edited ·{" "}
                       <a
                         href="#/predict"
                         onClick={(e) => {
@@ -473,29 +472,29 @@ export default function RiskPredictor() {
                           setDistance(String(typicalDistance.distance_km));
                         }}
                       >
-                        dùng lại {typicalDistance.distance_km} km
+                        restore {typicalDistance.distance_km} km
                       </a>
                     </>
                   ) : typicalDistance.source === "trung vị tuyến" ? (
-                    `Trung vị ${typicalDistance.orders.toLocaleString("vi-VN")} đơn thật của tuyến`
+                    `Median from ${typicalDistance.orders.toLocaleString("en-US")} historical orders on this route`
                   ) : typicalDistance.source === "tâm 2 bang" ? (
-                    "Ước tính từ tâm 2 bang (tuyến ít đơn)"
+                    "Estimated from state centers (limited route history)"
                   ) : (
-                    "Trung vị toàn sàn"
+                    "Overall marketplace median"
                   )}
                 </span>
               </label>
               <label style={label}>
-                Ngành hàng
+                Category
                 <Select
                   value={form.category}
-                  accessibleLabel="Ngành hàng"
+                  accessibleLabel="Category"
                   values={options.category}
                   onChange={set("category")}
                 />
               </label>
               <label style={label}>
-                Ngày mua
+                Purchase date
                 <input
                   type="date"
                   value={form.purchase_date}
@@ -503,7 +502,7 @@ export default function RiskPredictor() {
                 />
               </label>
               <label style={label}>
-                Ngày hẹn giao
+                Estimated delivery date
                 <input
                   type="date"
                   value={form.estimated_date}
@@ -513,7 +512,7 @@ export default function RiskPredictor() {
             </div>
             <details style={{ marginTop: 12 }}>
               <summary style={{ fontSize: 13, cursor: "pointer" }}>
-                Thông tin thêm (tuỳ chọn)
+                Additional details (optional)
               </summary>
               <div
                 style={{
@@ -524,7 +523,7 @@ export default function RiskPredictor() {
                 }}
               >
                 <label style={label}>
-                  Giá trị đơn (R$)
+                  Order value (R$)
                   <input
                     type="number"
                     min={0}
@@ -534,7 +533,7 @@ export default function RiskPredictor() {
                   />
                 </label>
                 <label style={label}>
-                  Phí ship (R$)
+                  Shipping cost (R$)
                   <input
                     type="number"
                     min={0}
@@ -544,7 +543,7 @@ export default function RiskPredictor() {
                   />
                 </label>
                 <label style={label}>
-                  Số sản phẩm
+                  Number of items
                   <input
                     type="number"
                     min={1}
@@ -554,13 +553,13 @@ export default function RiskPredictor() {
                   />
                 </label>
                 <label style={label}>
-                  Thanh toán
+                  Payment
                   <Select
                     value={form.payment_type}
-                    accessibleLabel="Thanh toán"
+                    accessibleLabel="Payment"
                     values={options.payment_type}
                     onChange={set("payment_type")}
-                    empty="(phổ biến nhất)"
+                    empty="(most common)"
                   />
                 </label>
               </div>
@@ -574,22 +573,23 @@ export default function RiskPredictor() {
         (carrierDate && carrierDate < form.purchase_date) ||
         (deliveredDate && deliveredDate < form.purchase_date)) && (
         <p role="alert" className="notice error">
-          Kiểm tra thông tin: các ngày phải từ ngày mua trở đi; số tiền, khoảng
-          cách và hạn bàn giao không âm; số sản phẩm là số nguyên ít nhất 1.
+          Check your inputs: dates must be on or after the purchase date;
+          amounts, distance and the handoff deadline must be non-negative; the
+          number of items must be a whole number of at least 1.
         </p>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
         <ToolCard
           model="late_delivery"
-          title="Rủi ro giao trễ"
-          note="Thời điểm dùng: khi người bán vừa bàn giao cho đơn vị vận chuyển. Rủi ro cao → liên hệ người bán/hãng vận chuyển, báo trước khách."
+          title="Late delivery risk"
+          note="Use when the seller hands the order to the carrier. If risk is high, contact the seller or carrier and notify the customer."
           order={order}
           resetKey={resetKey}
           ready={lateReady}
           extra={
             <>
               <label style={label}>
-                Ngày bàn giao vận chuyển
+                Carrier handoff date
                 <input
                   type="date"
                   value={carrierDate}
@@ -597,7 +597,7 @@ export default function RiskPredictor() {
                 />
               </label>
               <label style={label}>
-                Hạn bàn giao (ngày sau khi mua)
+                Handoff deadline (days after purchase)
                 <input
                   type="number"
                   min={0}
@@ -614,7 +614,7 @@ export default function RiskPredictor() {
                     ""
                   ) : limitEdited ? (
                     <>
-                      đã sửa ·{" "}
+                      edited ·{" "}
                       <a
                         href="#/predict"
                         onClick={(e) => {
@@ -622,13 +622,13 @@ export default function RiskPredictor() {
                           setLimitDays(String(policy.days));
                         }}
                       >
-                        dùng lại {policy.days} ngày
+                        restore {policy.days} days
                       </a>
                     </>
                   ) : policy.source === "quy định sàn" ? (
-                    "theo quy định sàn"
+                    "marketplace policy"
                   ) : (
-                    "mặc định = trung vị dữ liệu thật"
+                    "default: historical median"
                   )}
                 </span>
               </label>
@@ -641,14 +641,14 @@ export default function RiskPredictor() {
         />
         <ToolCard
           model="low_review"
-          title="Rủi ro nhận review thấp (≤ 2 sao)"
-          note="Thời điểm dùng: khi đơn vừa giao tới khách, trước khi khách đánh giá. Rủi ro cao → voucher / gọi hỏi thăm."
+          title="Low rating risk (≤ 2 stars)"
+          note="Use just after delivery, before the customer leaves a review. If risk is high, consider a voucher or a care call."
           order={order}
           resetKey={resetKey}
           ready={reviewReady}
           extra={
             <label style={label}>
-              Ngày giao tới khách
+              Actual delivery date
               <input
                 type="date"
                 value={deliveredDate}
@@ -660,9 +660,9 @@ export default function RiskPredictor() {
         />
       </div>
       <p style={{ fontSize: 12, color: "#888" }}>
-        Ô ngày để trống → dùng số ngày điển hình của tuyến (vd. ngày giao tới
-        khách = ngày mua + số ngày giao trung vị của tuyến). Mở "Giá trị mô hình
-        đã dùng" để xem chi tiết.
+        Blank dates use typical delivery times for the route (for example,
+        delivery date = purchase date + median route delivery days). Expand
+        "Model inputs" to see the values used.
       </p>
     </div>
   );

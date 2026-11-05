@@ -1,6 +1,6 @@
 # Olist Insight — Frontend
 
-Giao diện phân tích dữ liệu thương mại điện tử Olist, dùng React, TypeScript và Vite.
+Giao diện phân tích dữ liệu thương mại điện tử Olist, dùng React, TypeScript và Vite. Giao diện hiển thị bằng tiếng Anh, bao gồm thông báo, nhãn biểu đồ và tiêu đề CSV/Excel. Các giá trị gốc dùng khi gọi API và nội dung do người dùng nhập (ví dụ tên campaign) được giữ nguyên.
 
 ## Chạy ứng dụng
 

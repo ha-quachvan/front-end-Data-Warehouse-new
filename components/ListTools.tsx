@@ -29,7 +29,7 @@ export function RowLimit({
 
   return (
     <label style={{ whiteSpace: "nowrap" }}>
-      Hiển thị{" "}
+      Show{" "}
       <input
         type="number"
         min={1}
@@ -40,7 +40,7 @@ export function RowLimit({
         onKeyDown={(e) => e.key === "Enter" && commit()}
         style={{ width: 72 }}
       />{" "}
-      / {total ?? "…"} dòng
+      / {total ?? "…"} rows
     </label>
   );
 }
@@ -93,7 +93,7 @@ async function downloadXlsx<T>(
 ) {
   const { default: ExcelJS } = await import("exceljs"); // thư viện lớn: chỉ tải khi người dùng cần
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("Danh sách");
+  const sheet = workbook.addWorksheet("List");
   sheet.columns = columns.map((c) => ({
     header: c.header,
     width: Math.max(14, c.header.length + 2),
@@ -128,7 +128,7 @@ export function DownloadList<T>({
       ? Promise.resolve(downloadCsv(rows, columns, fileName))
       : downloadXlsx(rows, columns, fileName)
     )
-      .catch((e) => setError(`Không tải được tệp: ${e}`))
+      .catch((e) => setError(`Unable to download file: ${e}`))
       .finally(() => setBusy(false));
   };
 
@@ -142,7 +142,7 @@ export function DownloadList<T>({
       }}
     >
       <select
-        aria-label="Định dạng tệp"
+        aria-label="File format"
         value={format}
         onChange={(e) => setFormat(e.target.value as ExportFormat)}
       >
@@ -151,10 +151,10 @@ export function DownloadList<T>({
       </select>
       <button
         disabled={busy || rows.length === 0}
-        title={`Tải ${rows.length} dòng đang hiển thị`}
+        title={`Download ${rows.length} visible rows`}
         onClick={download}
       >
-        {busy ? "Đang tạo…" : "Tải xuống"}
+        {busy ? "Preparing…" : "Download"}
       </button>
       {error && (
         <span style={{ color: "#dc2626", whiteSpace: "normal" }}>{error}</span>

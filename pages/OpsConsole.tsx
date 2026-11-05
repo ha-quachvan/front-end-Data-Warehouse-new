@@ -64,10 +64,8 @@ function RiskSummary({
     <p style={{ fontSize: 13 }}>
       {shown.map((r) => (
         <span key={r.risk_level} style={{ marginRight: 16 }}>
-          <Level level={r.risk_level} />: {r.orders} đơn
-          {r.actual_rate !== null && (
-            <> (thực tế xảy ra {pct(r.actual_rate)})</>
-          )}
+          <Level level={r.risk_level} />: {r.orders} orders
+          {r.actual_rate !== null && <> (observed rate {pct(r.actual_rate)})</>}
         </span>
       ))}
     </p>
@@ -100,7 +98,7 @@ function HandlingPanel({ order }: { order: RiskyOrder }) {
         fontSize: 13,
       }}
     >
-      <b>Đề xuất xử lý cho đơn {order.order_id}</b>
+      <b>Action simulation for order {order.order_id}</b>
       <div
         style={{
           display: "flex",
@@ -111,7 +109,7 @@ function HandlingPanel({ order }: { order: RiskyOrder }) {
         }}
       >
         <label>
-          Hẹn giao thêm{" "}
+          Extend estimated delivery by{" "}
           <input
             type="number"
             min={0}
@@ -120,7 +118,7 @@ function HandlingPanel({ order }: { order: RiskyOrder }) {
             onChange={(e) => setExtraDays(Number(e.target.value))}
             style={{ width: 60 }}
           />{" "}
-          ngày
+          days
         </label>
         <button
           disabled={
@@ -128,16 +126,16 @@ function HandlingPanel({ order }: { order: RiskyOrder }) {
           }
           onClick={run}
         >
-          Xem rủi ro sau xử lý
+          Simulate risk after action
         </button>
       </div>
       {error && <p style={{ color: "crimson" }}>{error}</p>}
       {result && (
         <p>
-          Rủi ro: {pct(result.before.risk_score)} (
+          Risk: {pct(result.before.risk_score)} (
           <Level level={result.before.risk_level} />) →{" "}
           <b>{pct(result.after.risk_score)}</b> (
-          <Level level={result.after.risk_level} />) · ngưỡng High ={" "}
+          <Level level={result.after.risk_level} />) · High threshold ={" "}
           {pct(result.threshold)}
         </p>
       )}
@@ -148,38 +146,41 @@ function HandlingPanel({ order }: { order: RiskyOrder }) {
 // Xuất đủ giá trị (order_id đầy đủ) thay vì dạng rút gọn trên bảng
 function orderColumns(isLate: boolean): ExportColumn<RiskyOrder>[] {
   return [
-    { header: "order_id", value: (o) => o.order_id },
+    { header: "Order ID", value: (o) => o.order_id },
     {
-      header: "Rủi ro (%)",
+      header: "Risk (%)",
       value: (o) => Number((Number(o.risk_score) * 100).toFixed(1)),
     },
-    { header: "Mức", value: (o) => o.risk_level },
-    { header: "Bang người bán", value: (o) => stateName(o.seller_state) },
-    { header: "Bang khách", value: (o) => stateName(o.customer_state) },
-    { header: "Khoảng cách (km)", value: (o) => Math.round(o.distance_km) },
-    { header: "Ngành", value: (o) => categoryName(o.category) },
-    { header: "Ngày mua", value: (o) => o.purchase_ts?.slice(0, 10) ?? null },
+    { header: "Risk level", value: (o) => o.risk_level },
+    { header: "Seller state", value: (o) => stateName(o.seller_state) },
+    { header: "Customer state", value: (o) => stateName(o.customer_state) },
+    { header: "Distance (km)", value: (o) => Math.round(o.distance_km) },
+    { header: "Category", value: (o) => categoryName(o.category) },
     {
-      header: "Ngày hẹn giao",
+      header: "Purchase date",
+      value: (o) => o.purchase_ts?.slice(0, 10) ?? null,
+    },
+    {
+      header: "Estimated delivery date",
       value: (o) => o.estimated_date?.slice(0, 10) ?? null,
     },
     isLate
       ? {
-          header: "Bàn giao VC (ngày)",
+          header: "Carrier handoff (days)",
           value: (o) =>
             o.carrier_days === null ? null : Number(o.carrier_days),
         }
       : {
-          header: "Trễ (ngày)",
+          header: "Delay (days)",
           value: (o) => (o.delay_days === null ? null : Number(o.delay_days)),
         },
     // Đơn đang vận chuyển chưa có kết quả nên chỉ danh sách review thấp có cột này
-    ...(isLate ? [] : [{ header: "Thực tế", value: reviewResult }]),
+    ...(isLate ? [] : [{ header: "Actual outcome", value: reviewResult }]),
   ];
 }
 
 function reviewResult(o: RiskyOrder) {
-  return o.actual_label === null ? "chưa biết" : `${o.review_score}★`;
+  return o.actual_label === null ? "Unknown" : `${o.review_score}★`;
 }
 
 function RiskyOrders({
@@ -247,9 +248,7 @@ function RiskyOrders({
       <h2 style={{ fontSize: 16 }}>{title}</h2>
       <p style={{ fontSize: 12, color: "#888", marginTop: 0 }}>{note}</p>
       {error && (
-        <p style={{ color: "crimson" }}>
-          Không kết nối được backend-api: {error}
-        </p>
+        <p style={{ color: "crimson" }}>Unable to load data: {error}</p>
       )}
       <div
         style={{
@@ -261,10 +260,10 @@ function RiskyOrders({
         }}
       >
         <select value={level} onChange={(e) => setLevel(e.target.value)}>
-          <option value="">Tất cả mức</option>
+          <option value="">All risk levels</option>
           {LEVELS.map((l) => (
             <option key={l} value={l}>
-              Mức {l}
+              Risk level {l}
             </option>
           ))}
         </select>
@@ -281,7 +280,7 @@ function RiskyOrders({
           <DownloadList
             rows={orders}
             columns={orderColumns(isLate)}
-            fileName={`${model}_${scope}_${level || "All"}_${orders.length}_dong`}
+            fileName={`${model}_${scope}_${level || "All"}_${orders.length}_rows`}
           />
         </span>
       </div>
@@ -297,14 +296,14 @@ function RiskyOrders({
           <thead>
             <tr>
               {[
-                "order_id",
-                "Rủi ro",
-                "Tuyến",
-                "Ngành",
-                "Mua",
-                "Hẹn giao",
-                isLate ? "Bàn giao VC (ngày)" : "Trễ (ngày)",
-                ...(isLate ? [""] : ["Thực tế"]),
+                "Order ID",
+                "Risk",
+                "Route",
+                "Category",
+                "Purchased",
+                "Estimated delivery",
+                isLate ? "Carrier handoff (days)" : "Delay (days)",
+                ...(isLate ? [""] : ["Actual outcome"]),
               ].map((h) => (
                 <th key={h} style={th}>
                   {h}
@@ -317,8 +316,8 @@ function RiskyOrders({
               <tr>
                 <td colSpan={8} className="empty-state">
                   {error
-                    ? "Dữ liệu chưa khả dụng."
-                    : "Không có đơn hàng trong danh sách này."}
+                    ? "Data is currently unavailable."
+                    : "No orders match this selection."}
                 </td>
               </tr>
             )}
@@ -350,7 +349,7 @@ function RiskyOrders({
                 {isLate && (
                   <td style={td}>
                     <button onClick={() => setSelected(o)}>
-                      Đề xuất xử lý
+                      Simulate action
                     </button>
                   </td>
                 )}
@@ -395,8 +394,8 @@ function CampaignTargeting() {
         )?.campaign_name;
         setMessage(
           r.inserted > 0
-            ? `Đã gắn thêm ${r.inserted} khách vào "${name}".`
-            : `Không có khách mới: mọi khách đạt ngưỡng đã có trong "${name}".`,
+            ? `Added ${r.inserted} ${r.inserted === 1 ? "customer" : "customers"} to "${name}".`
+            : `No new customers: all eligible customers are already in "${name}".`,
         );
       })
       .catch((e) => setMessage(String(e)))
@@ -405,7 +404,7 @@ function CampaignTargeting() {
 
   return (
     <section style={{ marginBottom: 40 }}>
-      <h2 style={{ fontSize: 16 }}>Gắn khách vào campaign chăm sóc</h2>
+      <h2 style={{ fontSize: 16 }}>Assign customers to a care campaign</h2>
       <div
         style={{
           display: "flex",
@@ -416,7 +415,7 @@ function CampaignTargeting() {
         }}
       >
         <label htmlFor="min-risk">
-          Gắn các khách hàng có rủi ro review thấp ≥
+          Assign customers with low rating risk ≥
         </label>
         <span style={{ whiteSpace: "nowrap" }}>
           <input
@@ -431,7 +430,7 @@ function CampaignTargeting() {
           />{" "}
           %
         </span>
-        <label htmlFor="target-campaign">vào campaign</label>
+        <label htmlFor="target-campaign">to campaign</label>
         <select
           id="target-campaign"
           value={code}
@@ -446,22 +445,22 @@ function CampaignTargeting() {
           ))}
         </select>
         <button disabled={!code || !validRisk || busy} onClick={assign}>
-          Gắn khách
+          Assign customers
         </button>
       </div>
       <p style={{ fontSize: 12, color: "#888", margin: "8px 0 0" }}>
-        Đang mô phỏng trên các đơn thuộc tập kiểm định (đã có review thật). Khi
-        triển khai, danh sách sẽ lấy từ các đơn vừa giao để chăm sóc trước khi
-        khách đánh giá.
+        This simulation uses validation orders with known ratings. In
+        production, use newly delivered orders to provide care before customers
+        leave a review.
       </p>
       {campaigns.length === 0 && !message && (
         <p style={{ fontSize: 13 }}>
-          Chưa có campaign. Tạo mới ở tab <a href="#/campaigns">Campaign</a>.
+          No campaigns yet. Create one in <a href="#/campaigns">Campaign</a>.
         </p>
       )}
       {message && (
         <p style={{ fontSize: 13 }}>
-          {message} Xem danh sách ở tab <a href="#/campaigns">Campaign</a>.
+          {message} View the list in <a href="#/campaigns">Campaign</a>.
         </p>
       )}
     </section>
@@ -469,8 +468,8 @@ function CampaignTargeting() {
 }
 
 const MODEL_LABEL: Record<RiskModel, string> = {
-  late_delivery: "Rủi ro giao trễ",
-  low_review: "Rủi ro review thấp",
+  late_delivery: "Late delivery risk",
+  low_review: "Low rating risk",
 };
 
 function ModelQuality() {
@@ -487,12 +486,12 @@ function ModelQuality() {
     api
       .riskMetrics()
       .then(setMetrics)
-      .catch(() => setError("Không tải được chất lượng mô hình."));
+      .catch(() => setError("Unable to load model quality data."));
     (["late_delivery", "low_review"] as RiskModel[]).forEach((m) => {
       api
         .featureImportance(m)
         .then((rows) => setImportance((prev) => ({ ...prev, [m]: rows })))
-        .catch(() => setError("Không tải được chất lượng mô hình."));
+        .catch(() => setError("Unable to load model quality data."));
       api
         .riskSummary(m)
         .then((rows) =>
@@ -508,7 +507,7 @@ function ModelQuality() {
   return (
     <section>
       <h2 style={{ fontSize: 16 }}>
-        Chất lượng mô hình (tập kiểm định 06–08/2018)
+        Model quality (Jun–Aug 2018 validation set)
       </h2>
       {error && (
         <p role="alert" className="notice error">
@@ -527,12 +526,12 @@ function ModelQuality() {
           <thead>
             <tr>
               {[
-                "Mô hình",
-                "Phiên bản",
-                "Tỷ lệ dương",
+                "Model",
+                "Version",
+                "Positive rate",
                 "ROC-AUC",
                 "PR-AUC",
-                "Ngưỡng",
+                "Threshold",
                 "Precision",
                 "Recall",
                 "F1",
@@ -567,12 +566,11 @@ function ModelQuality() {
       </div>
 
       <h3 style={{ fontSize: 14, marginBottom: 4 }}>
-        Đối chiếu mức rủi ro với kết quả thật
+        Risk levels vs. observed outcomes
       </h3>
       <p style={{ fontSize: 12, color: "#888", marginTop: 0 }}>
-        Các đơn đã biết kết quả trong tập kiểm định: mức càng cao thì tỷ lệ xảy
-        ra thật càng cao, nên có thể tin vào mức rủi ro của đơn chưa biết kết
-        quả.
+        Compare risk levels with known outcomes in the validation set to assess
+        how well the model identifies at-risk orders.
       </p>
       <div className="table-scroll">
         <table
@@ -585,7 +583,7 @@ function ModelQuality() {
         >
           <thead>
             <tr>
-              {["Mô hình", "Mức", "Số đơn", "Tỷ lệ xảy ra thật"].map((h) => (
+              {["Model", "Risk level", "Orders", "Observed rate"].map((h) => (
                 <th key={h} style={th}>
                   {h}
                 </th>
@@ -603,7 +601,9 @@ function ModelQuality() {
                   <td style={td}>{r.orders}</td>
                   <td style={td}>
                     {pct(r.actual_rate)}{" "}
-                    {m === "late_delivery" ? "bị trễ" : "review ≤ 2 sao"}
+                    {m === "late_delivery"
+                      ? "late deliveries"
+                      : "ratings ≤ 2 stars"}
                   </td>
                 </tr>
               )),
@@ -616,7 +616,7 @@ function ModelQuality() {
         {(["late_delivery", "low_review"] as RiskModel[]).map((m) => (
           <div key={m} style={{ flex: "1 1 420px" }}>
             <h3 style={{ fontSize: 14 }}>
-              Feature quan trọng nhất — {MODEL_LABEL[m]}
+              Most important features — {MODEL_LABEL[m]}
             </h3>
             <ResponsiveContainer width="100%" height={260}>
               <BarChart
@@ -630,7 +630,7 @@ function ModelQuality() {
                 <Tooltip
                   formatter={(v: number) => [
                     Number(v).toFixed(4),
-                    "Giảm PR-AUC",
+                    "PR-AUC decrease",
                   ]}
                 />
                 <Bar
@@ -659,18 +659,18 @@ export default function OpsConsole() {
     >
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>Ops Console</h1>
       <p style={{ color: "#666", marginTop: 0 }}>
-        Vận hành & CSKH — đơn có rủi ro giao trễ, khách có rủi ro đánh giá thấp,
-        campaign chăm sóc và chất lượng mô hình
+        Operations & customer care — at-risk orders, low rating risk, care
+        campaigns and model quality
       </p>
       <RiskyOrders
         model="late_delivery"
-        title="Đơn đang vận chuyển có rủi ro giao trễ"
-        note="Chấm điểm lúc đơn được bàn giao cho đơn vị vận chuyển. Hành động: liên hệ người bán/hãng vận chuyển, báo trước khách ngày giao mới."
+        title="In-transit orders at risk of late delivery"
+        note="Scored when an order is handed to the carrier. Contact the seller or carrier and notify the customer of any revised delivery date."
       />
       <RiskyOrders
         model="low_review"
-        title="Đơn vừa giao có rủi ro review thấp (≤ 2 sao)"
-        note="Chấm điểm lúc đơn vừa giao tới khách, trước khi khách viết review. Hành động: gán vào campaign chăm sóc bên dưới."
+        title="Delivered orders at risk of low ratings (≤ 2 stars)"
+        note="Scored after delivery, before the customer leaves a review. Assign at-risk customers to a care campaign below."
       />
       <CampaignTargeting />
       <ModelQuality />

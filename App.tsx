@@ -8,28 +8,28 @@ const PAGES = [
   {
     path: "#/manager",
     label: "Manager Dashboard",
-    caption: "Tổng quan kinh doanh",
+    caption: "Business overview",
     icon: "▦",
     Component: ManagerDashboard,
   },
   {
     path: "#/ops",
     label: "Ops Console",
-    caption: "Vận hành & rủi ro",
+    caption: "Operations & risk",
     icon: "⇄",
     Component: OpsConsole,
   },
   {
     path: "#/campaigns",
     label: "Campaign",
-    caption: "Chăm sóc khách hàng",
+    caption: "Customer care",
     icon: "◎",
     Component: CampaignManager,
   },
   {
     path: "#/predict",
-    label: "Dự đoán rủi ro",
-    caption: "Hỗ trợ quyết định",
+    label: "Risk Predictor",
+    caption: "Decision support",
     icon: "◈",
     Component: RiskPredictor,
   },
@@ -50,7 +50,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
-        Đến nội dung chính
+        Skip to main content
       </a>
       <header className="app-header">
         <a href="#/manager" className="brand">
@@ -63,10 +63,10 @@ export default function App() {
           </span>
         </a>
         <span className="workspace-label">
-          Không gian phân tích <span>Olist · Brazil</span>
+          Analytics workspace <span>Olist · Brazil</span>
         </span>
       </header>
-      <nav className="main-nav" aria-label="Điều hướng chính">
+      <nav className="main-nav" aria-label="Main navigation">
         {PAGES.map((p) => (
           <a
             key={p.path}
@@ -86,13 +86,13 @@ export default function App() {
       </nav>
       <main id="main-content" className="page-content" tabIndex={-1}>
         <div className="breadcrumb">
-          Không gian phân tích <span>/</span> <b>{page.label}</b>
+          Analytics workspace <span>/</span> <b>{page.label}</b>
         </div>
         <page.Component />
       </main>
       <footer className="app-footer">
-        <span>Olist Insight</span> Kho dữ liệu & Hệ hỗ trợ quyết định{" "}
-        <span>Đơn vị tiền tệ: BRL (R$)</span>
+        <span>Olist Insight</span> Data Warehouse & Decision Support{" "}
+        <span>Currency: BRL (R$)</span>
       </footer>
     </div>
   );

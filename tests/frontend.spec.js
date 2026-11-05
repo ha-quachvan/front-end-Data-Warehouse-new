@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 
 const categories = ["bed_bath_table", "cool_stuff"];
@@ -25,7 +26,7 @@ const revenue = Array.from({ length: 12 }, (_, i) => ({
   year: 2018,
   month: i + 1,
   category: categories[i % 2],
-  region: "Southeast",
+  region: "Sudeste",
   state: i % 2 ? "RJ" : "SP",
   total_revenue: 300000 + i * 45000,
   total_quantity: 400,
@@ -36,8 +37,8 @@ async function mockApi(page) {
   let campaigns = [
     {
       campaign_code: "CARE_CALL",
-      campaign_name: "Gọi hỏi thăm",
-      description: "Chăm sóc khách có rủi ro review thấp.",
+      campaign_name: "Care call",
+      description: "Care for customers at risk of low ratings.",
       total_targets: 0,
     },
   ];
@@ -140,6 +141,7 @@ async function mockApi(page) {
             value: body.distance_km ?? 384.6,
             source: "nhập",
           },
+          { feature: "total_price", value: 137, source: "trung vị tuyến" },
         ],
         derived: { estimated_days: 23 },
         route_history: {
@@ -232,13 +234,13 @@ test("manager preserves analysis, removes top revenue products and filters using
   const calls = [];
   page.on("request", (r) => calls.push(r.url()));
   await page.goto("/#/manager");
-  await expect(page.locator(".kpi-card").first()).toContainText("13.494.401");
+  await expect(page.locator(".kpi-card").first()).toContainText("13,494,401");
   await expect(
-    page.getByRole("heading", { name: "Top 10 sản phẩm theo doanh thu" }),
+    page.getByRole("heading", { name: "Top 10 products by revenue" }),
   ).toHaveCount(0);
   await expect(
     page.getByRole("heading", {
-      name: "10 sản phẩm bán chậm nhất (doanh thu thấp nhất)",
+      name: "10 lowest-revenue products",
     }),
   ).toBeVisible();
   await expect(
@@ -247,7 +249,7 @@ test("manager preserves analysis, removes top revenue products and filters using
   await expect(
     page.getByRole("cell", { name: "Cool Stuff", exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Ngành", { exact: true }).selectOption("cool_stuff");
+  await page.getByLabel("Category", { exact: true }).selectOption("cool_stuff");
   await expect
     .poll(() => calls.some((u) => u.includes("category=cool_stuff")))
     .toBeTruthy();
@@ -266,27 +268,52 @@ test("operations handles what-if, assignment, filters and CSV/XLSX downloads", a
   page,
 }) => {
   await page.goto("/#/ops");
-  await page.getByRole("button", { name: "Đề xuất xử lý" }).click();
-  await page.getByRole("button", { name: "Xem rủi ro sau xử lý" }).click();
+  await page.getByRole("button", { name: "Simulate action" }).click();
+  await page
+    .getByRole("button", { name: "Simulate risk after action" })
+    .click();
   await expect(page.getByText("12.0%", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Gắn khách", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Assign customers", exact: true })
+    .click();
   await expect(
-    page.getByText("Đã gắn thêm 1 khách", { exact: false }),
+    page.getByText("Added 1 customer", { exact: false }),
   ).toBeVisible();
   const firstSection = page.locator("section").first();
   for (const format of ["csv", "xlsx"]) {
-    await firstSection.getByLabel("Định dạng tệp").selectOption(format);
+    await firstSection.getByLabel("File format").selectOption(format);
     const wait = page.waitForEvent("download");
-    await firstSection.getByRole("button", { name: "Tải xuống" }).click();
+    await firstSection.getByRole("button", { name: "Download" }).click();
     const download = await wait;
     expect(download.suggestedFilename()).toMatch(
       new RegExp("\\." + format + "$"),
     );
     expect(await download.failure()).toBeNull();
+    const path = await download.path();
+    if (format === "csv") {
+      const csv = await readFile(path, "utf8");
+      expect(csv).toContain(
+        "Order ID,Risk (%),Risk level,Seller state,Customer state",
+      );
+      expect(csv).toContain(order.order_id);
+    } else {
+      const { default: ExcelJS } = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(path);
+      expect(workbook.worksheets[0].name).toBe("List");
+      expect(workbook.worksheets[0].getRow(1).values.slice(1, 6)).toEqual([
+        "Order ID",
+        "Risk (%)",
+        "Risk level",
+        "Seller state",
+        "Customer state",
+      ]);
+      expect(workbook.worksheets[0].getCell("A2").value).toBe(order.order_id);
+    }
   }
   await firstSection.locator("select").first().selectOption("Low");
   await expect(
-    firstSection.getByText("Không có đơn hàng trong danh sách này."),
+    firstSection.getByText("No orders match this selection."),
   ).toBeVisible();
 });
 
@@ -295,39 +322,37 @@ test("campaign create edit detail delete and target cleanup", async ({
 }) => {
   page.on("dialog", (d) => d.accept());
   await page.goto("/#/ops");
-  await page.getByRole("button", { name: "Gắn khách", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Assign customers", exact: true })
+    .click();
   await page
     .getByRole("link", { name: "Campaign", exact: true })
     .first()
     .click();
-  await page.getByRole("button", { name: "Chi tiết" }).click();
+  await page.getByRole("button", { name: "Details" }).click();
   await expect(
     page.getByRole("cell", { name: "Rio de Janeiro (RJ)", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Xoá tệp đã gắn" }).click();
+  await page.getByRole("button", { name: "Remove all customers" }).click();
   await expect(
-    page.getByText("Chưa có khách nào.", { exact: false }),
+    page.getByText("No customers assigned yet.", { exact: false }),
   ).toBeVisible();
-  await page.getByLabel("Tên campaign").fill("Ưu tiên hỗ trợ");
-  await page.getByLabel("Mô tả campaign").fill("Mô tả thử nghiệm");
+  await page.getByLabel("Campaign name").fill("Priority support");
+  await page.getByLabel("Campaign description").fill("Test description");
   await page
-    .getByRole("button", { name: "Thêm campaign", exact: true })
+    .getByRole("button", { name: "Create campaign", exact: true })
     .click();
-  const row = page
-    .getByRole("row")
-    .filter({
-      has: page.getByRole("cell", { name: "Ưu tiên hỗ trợ", exact: true }),
-    });
+  const row = page.getByRole("row").filter({
+    has: page.getByRole("cell", { name: "Priority support", exact: true }),
+  });
   await expect(row).toBeVisible();
-  await row.getByRole("button", { name: "Sửa", exact: true }).click();
-  await page.getByLabel("Tên campaign").last().fill("Ưu tiên mới");
-  await page.getByRole("button", { name: "Lưu", exact: true }).click();
-  const edited = page
-    .getByRole("row")
-    .filter({
-      has: page.getByRole("cell", { name: "Ưu tiên mới", exact: true }),
-    });
-  await edited.getByRole("button", { name: "Xoá", exact: true }).click();
+  await row.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Campaign name").last().fill("Updated priority");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const edited = page.getByRole("row").filter({
+    has: page.getByRole("cell", { name: "Updated priority", exact: true }),
+  });
+  await edited.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(edited).toHaveCount(0);
 });
 
@@ -335,24 +360,24 @@ test("prediction sends raw codes, blocks invalid dates and clears stale results"
   page,
 }) => {
   await page.goto("/#/predict");
-  await expect(page.getByLabel("Bang người bán")).toContainText(
-    "São Paulo (SP)",
-  );
-  await page
-    .getByLabel("Ngành hàng", { exact: true })
-    .selectOption("cool_stuff");
-  const buttons = page.getByRole("button", { name: "Dự đoán", exact: true });
+  await expect(page.getByLabel("Seller state")).toContainText("São Paulo (SP)");
+  await page.getByLabel("Category", { exact: true }).selectOption("cool_stuff");
+  const buttons = page.getByRole("button", { name: "Predict", exact: true });
   const request = page.waitForRequest((r) =>
     r.url().endsWith("/risk/late_delivery/predict"),
   );
   await buttons.first().click();
   expect((await request).postDataJSON().category).toBe("cool_stuff");
   await expect(page.getByText("41.4%", { exact: true })).toBeVisible();
-  await page.getByLabel("Ngày hẹn giao", { exact: true }).fill("2018-07-01");
+  await page
+    .getByLabel("Estimated delivery date", { exact: true })
+    .fill("2018-07-01");
   await expect(buttons.first()).toBeDisabled();
   await expect(page.getByText("41.4%", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("alert")).toContainText("Kiểm tra thông tin");
-  await page.getByLabel("Ngày hẹn giao", { exact: true }).fill("2018-07-25");
+  await expect(page.getByRole("alert")).toContainText("Check your inputs");
+  await page
+    .getByLabel("Estimated delivery date", { exact: true })
+    .fill("2018-07-25");
   await buttons.last().click();
   await expect(page.getByText("41.4%", { exact: true })).toBeVisible();
   await page.screenshot({
@@ -393,9 +418,62 @@ test("unavailable backend reports errors without uncaught exceptions", async ({
     await page.goto("/#/" + path);
     await expect(
       page
-        .getByText(/Không kết nối được máy chủ dữ liệu|Không tải được/)
+        .getByText(/Unable to connect to the data server|Unable to load/)
         .first(),
     ).toBeVisible();
   }
   expect(errors).toEqual([]);
+});
+
+test("English interface localizes backend labels without rewriting API values", async ({
+  page,
+}) => {
+  const vietnameseUI = /[đĐăĂơƠưƯ\u1ea0-\u1ef9]/u;
+  await page.goto("/#/manager");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.getByLabel("Main navigation")).toContainText(
+    "Risk Predictor",
+  );
+  await expect(page.getByText("On time", { exact: true })).toBeVisible();
+  const regionRequest = page.waitForRequest((r) =>
+    r.url().includes("region=Sudeste"),
+  );
+  await page
+    .getByLabel("Region", { exact: true })
+    .selectOption({ label: "Southeast" });
+  expect(new URL((await regionRequest).url()).searchParams.get("region")).toBe(
+    "Sudeste",
+  );
+  await expect(page.locator("body")).not.toContainText(vietnameseUI);
+  for (const route of ["ops", "campaigns", "predict"]) {
+    await page.goto("/#/" + route);
+    await expect(page.locator("h1")).toBeVisible();
+    await expect(page.locator("body")).not.toContainText(vietnameseUI);
+  }
+  await expect(page.getByText("marketplace policy")).toBeVisible();
+  await expect(
+    page.getByText("Median from 6,845 historical orders on this route"),
+  ).toBeVisible();
+  const request = page.waitForRequest((r) =>
+    r.url().endsWith("/risk/late_delivery/predict"),
+  );
+  await page
+    .getByRole("button", { name: "Predict", exact: true })
+    .first()
+    .click();
+  const payload = (await request).postDataJSON();
+  expect(payload).toMatchObject({
+    seller_state: "SP",
+    customer_state: "RJ",
+    category: "bed_bath_table",
+    shipping_limit_days: null,
+  });
+  await page.getByText("Model inputs (2 features)", { exact: true }).click();
+  await expect(
+    page.getByRole("cell", { name: "User input", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "Route median", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(vietnameseUI);
 });

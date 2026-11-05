@@ -220,7 +220,7 @@ async function getJSON<T>(
     });
   } catch {
     throw new Error(
-      "Không kết nối được máy chủ dữ liệu. Kiểm tra backend và cấu hình VITE_API_BASE_URL, rồi tải lại trang.",
+      "Unable to connect to the data server. Check the backend and VITE_API_BASE_URL configuration, then reload the page.",
     );
   }
   if (!res.ok) {
