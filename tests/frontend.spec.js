@@ -169,7 +169,27 @@ async function mockApi(page) {
       );
     else if (path.endsWith("/orders"))
       data = url.searchParams.get("level") === "Low" ? [] : [order];
-    else if (path === "/risk/metrics") data = [];
+    else if (path === "/risk/metrics")
+      data = [
+        {
+          model_name: "late_delivery",
+          model_version: "test-hgb",
+          is_primary: true,
+          n_train: 8000,
+          n_test: 2000,
+          positive_rate: 0.1,
+          roc_auc: 0.79,
+          pr_auc: 0.42,
+          threshold: 0.5,
+          precision: 0.6,
+          recall: 0.3,
+          f1: 0.4,
+          threshold_valid: 0.5,
+          f1_valid_threshold: 0.4,
+          precision_top10: 0.6,
+          recall_top10: 0.3,
+        },
+      ];
     else if (path.endsWith("/importance"))
       data = [{ feature: "distance_km", importance: 0.12 }];
     else if (path === "/campaigns" && method === "POST") {
@@ -244,7 +264,10 @@ test("manager preserves analysis, removes top revenue products and filters using
     }),
   ).toBeVisible();
   await expect(
-    page.getByText("São Paulo (SP) → Rio de Janeiro (RJ)", { exact: true }),
+    page.getByRole("cell", { name: "São Paulo (SP)", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "Rio de Janeiro (RJ)", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("cell", { name: "Cool Stuff", exact: true }),
@@ -269,10 +292,21 @@ test("operations handles what-if, assignment, filters and CSV/XLSX downloads", a
 }) => {
   await page.goto("/#/ops");
   await page.getByRole("button", { name: "Simulate action" }).click();
+  const whatIfRequest = page.waitForRequest((r) =>
+    r.url().endsWith("/risk/late_delivery/what-if"),
+  );
   await page
     .getByRole("button", { name: "Simulate risk after action" })
     .click();
+  expect((await whatIfRequest).postDataJSON()).toMatchObject({
+    order_id: order.order_id,
+    overrides: { estimated_days: 28 },
+  });
   await expect(page.getByText("12.0%", { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/olist-ops-simulation.png",
+    fullPage: true,
+  });
   await page
     .getByRole("button", { name: "Assign customers", exact: true })
     .click();
@@ -281,9 +315,10 @@ test("operations handles what-if, assignment, filters and CSV/XLSX downloads", a
   ).toBeVisible();
   const firstSection = page.locator("section").first();
   for (const format of ["csv", "xlsx"]) {
-    await firstSection.getByLabel("File format").selectOption(format);
     const wait = page.waitForEvent("download");
-    await firstSection.getByRole("button", { name: "Download" }).click();
+    await firstSection
+      .getByRole("button", { name: format.toUpperCase(), exact: true })
+      .click();
     const download = await wait;
     expect(download.suggestedFilename()).toMatch(
       new RegExp("\\." + format + "$"),
@@ -333,6 +368,10 @@ test("campaign create edit detail delete and target cleanup", async ({
   await expect(
     page.getByRole("cell", { name: "Rio de Janeiro (RJ)", exact: true }),
   ).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/olist-campaign-details.png",
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "Remove all customers" }).click();
   await expect(
     page.getByText("No customers assigned yet.", { exact: false }),
@@ -381,7 +420,7 @@ test("prediction sends raw codes, blocks invalid dates and clears stale results"
   await buttons.last().click();
   await expect(page.getByText("41.4%", { exact: true })).toBeVisible();
   await page.screenshot({
-    path: "/tmp/olist-predict-desktop.png",
+    path: "/tmp/olist-predict-result.png",
     fullPage: true,
   });
 });
@@ -389,21 +428,25 @@ test("prediction sends raw codes, blocks invalid dates and clears stale results"
 test("all routes fit mobile viewport without horizontal page overflow", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ["manager", "ops", "campaigns", "predict"]) {
-    await page.goto("/#/" + path);
-    await expect(page.locator("h1")).toBeVisible();
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () => document.documentElement.scrollWidth <= window.innerWidth,
-        ),
-      )
-      .toBeTruthy();
-    await page.screenshot({
-      path: "/tmp/olist-" + path + "-mobile.png",
-      fullPage: true,
-    });
+  for (const width of [1440, 1024, 768, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const path of ["manager", "ops", "campaigns", "predict"]) {
+      await page.goto("/#/" + path);
+      await expect(page.locator("h1")).toBeVisible();
+      await expect(page.locator(".data-loading")).toHaveCount(0);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => document.documentElement.scrollWidth <= window.innerWidth,
+          ),
+        )
+        .toBeTruthy();
+      if (width === 390 || width === 1440)
+        await page.screenshot({
+          path: `/tmp/olist-${path}-${width === 390 ? "mobile" : "desktop"}.png`,
+          fullPage: true,
+        });
+    }
   }
 });
 
@@ -476,4 +519,156 @@ test("English interface localizes backend labels without rewriting API values", 
     page.getByRole("cell", { name: "Route median", exact: true }),
   ).toBeVisible();
   await expect(page.locator("body")).not.toContainText(vietnameseUI);
+});
+
+test("four-tab header has no brand and report exports current filtered API data", async ({
+  page,
+}) => {
+  await page.goto("/#/manager");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(nav.getByRole("link")).toHaveText([
+    "Manager Dashboard",
+    "Ops Console",
+    "Campaign",
+    "Risk Predictor",
+  ]);
+  await expect(page.locator("header")).not.toContainText("Olist Insight");
+  await expect(page.locator("header img, header svg")).toHaveCount(0);
+  await page.getByLabel("Category", { exact: true }).selectOption("cool_stuff");
+  await expect(page.locator(".filtered-total")).not.toContainText("Loading");
+  const wait = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Export report", exact: true })
+    .click();
+  const download = await wait;
+  const csv = await readFile(await download.path(), "utf8");
+  expect(csv).toContain("Revenue (BRL)");
+  expect(csv).toContain("Cool Stuff");
+  expect(csv).not.toContain("Bed Bath Table");
+  expect(csv).not.toMatch(/illustrative|demo/i);
+});
+
+test("risk summary, row limit, sorting and model metrics use API data", async ({
+  page,
+}) => {
+  const calls = [];
+  page.on("request", (r) => calls.push(r.url()));
+  await page.goto("/#/ops");
+  await expect(
+    page.getByRole("cell", { name: "test-hgb", exact: true }),
+  ).toBeVisible();
+  const section = page.locator(".risk-orders").first();
+  await section.getByLabel("Rows").fill("1");
+  await section.getByLabel("Rows").press("Enter");
+  await expect
+    .poll(() =>
+      calls.some(
+        (u) =>
+          u.includes("/risk/late_delivery/orders?") && u.includes("limit=1"),
+      ),
+    )
+    .toBeTruthy();
+  await section.getByRole("button", { name: "Risk", exact: true }).click();
+  await expect(
+    section.getByRole("columnheader", { name: "Risk", exact: true }),
+  ).toHaveAttribute("aria-sort", "ascending");
+  await section.getByRole("button", { name: "Risk", exact: true }).click();
+  await expect(
+    section.getByRole("columnheader", { name: "Risk", exact: true }),
+  ).toHaveAttribute("aria-sort", "descending");
+});
+
+test("stale prediction responses cannot reappear after inputs change", async ({
+  page,
+}) => {
+  let finish;
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
+  await page.route("**/risk/late_delivery/predict", async (route) => {
+    await gate;
+    await route.fulfill({
+      json: {
+        model: "late_delivery",
+        risk_score: 0.99,
+        risk_level: "High",
+        threshold: 0.5,
+        inputs_used: [],
+        derived: {},
+        route_history: null,
+      },
+    });
+  });
+  await page.goto("/#/predict");
+  const started = page.waitForRequest((r) =>
+    r.url().endsWith("/risk/late_delivery/predict"),
+  );
+  await page
+    .getByRole("button", { name: "Predict", exact: true })
+    .first()
+    .click();
+  await started;
+  await page
+    .getByLabel("Estimated delivery date", { exact: true })
+    .fill("2018-07-26");
+  const completed = page.waitForResponse((r) =>
+    r.url().endsWith("/risk/late_delivery/predict"),
+  );
+  finish();
+  await completed;
+  await expect(page.getByText("99.0%", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Predict", exact: true }).first(),
+  ).toBeEnabled();
+});
+
+test("skip link focuses content without changing the selected tab", async ({
+  page,
+}) => {
+  await page.goto("/#/ops");
+  await expect(page.locator("h1")).toHaveText("Ops Console");
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("link", { name: "Skip to main content" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("main")).toBeFocused();
+  await expect(page).toHaveURL(/#\/ops$/);
+});
+
+test("manual optional inputs are sent when the backend supplies no default policy", async ({
+  page,
+}) => {
+  await page.route("**/risk/predict/options", (route) =>
+    route.fulfill({
+      json: {
+        seller_state: ["SP"],
+        customer_state: ["RJ"],
+        category: categories,
+        payment_type: ["credit_card"],
+      },
+    }),
+  );
+  await page.goto("/#/predict");
+  await page
+    .getByLabel("Handoff deadline (days after purchase)", { exact: true })
+    .fill("7");
+  await page.getByText("Optional details", { exact: true }).click();
+  await page.getByLabel("Order value (R$)", { exact: true }).fill("0");
+  await page.getByLabel("Number of items", { exact: true }).fill("2");
+  const request = page.waitForRequest((r) =>
+    r.url().endsWith("/risk/late_delivery/predict"),
+  );
+  await page
+    .getByRole("button", { name: "Predict", exact: true })
+    .first()
+    .click();
+  expect((await request).postDataJSON()).toMatchObject({
+    shipping_limit_days: 7,
+    total_price: 0,
+    n_items: 2,
+    total_freight: null,
+    payment_type: null,
+    carrier_date: null,
+  });
 });

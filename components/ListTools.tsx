@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Download } from "lucide-react";
 
 // Công cụ dùng chung cho các danh sách: chọn số dòng hiển thị và tải các dòng đang hiển thị về máy
 
@@ -24,23 +25,26 @@ export function RowLimit({
     }
     const next = total === null ? value : Math.min(value, Math.max(total, 1));
     setDraft(String(Math.min(next, total ?? next)));
-    if (next !== shown) onChange(next);
+    if (next !== limit) onChange(next);
   };
 
   return (
-    <label style={{ whiteSpace: "nowrap" }}>
-      Show{" "}
-      <input
-        type="number"
-        min={1}
-        max={total ?? undefined}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === "Enter" && commit()}
-        style={{ width: 72 }}
-      />{" "}
-      / {total ?? "…"} rows
+    <label className="row-limit">
+      <span>Rows</span>
+      <span className="row-limit-control">
+        <input
+          type="number"
+          min={1}
+          disabled={total === 0}
+          max={total ?? undefined}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === "Enter" && commit()}
+          style={{ width: 72 }}
+        />{" "}
+        / {total ?? "…"}
+      </span>
     </label>
   );
 }
@@ -68,7 +72,7 @@ function csvCell(value: string | number | null): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function downloadCsv<T>(
+export function downloadCsv<T>(
   rows: T[],
   columns: ExportColumn<T>[],
   fileName: string,
@@ -117,11 +121,10 @@ export function DownloadList<T>({
   columns: ExportColumn<T>[];
   fileName: string;
 }) {
-  const [format, setFormat] = useState<ExportFormat>("csv");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const download = () => {
+  const download = (format: ExportFormat) => {
     setBusy(true);
     setError(null);
     (format === "csv"
@@ -133,32 +136,27 @@ export function DownloadList<T>({
   };
 
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        whiteSpace: "nowrap",
-      }}
-    >
-      <select
-        aria-label="File format"
-        value={format}
-        onChange={(e) => setFormat(e.target.value as ExportFormat)}
-      >
-        <option value="csv">.csv</option>
-        <option value="xlsx">.xlsx</option>
-      </select>
-      <button
-        disabled={busy || rows.length === 0}
-        title={`Download ${rows.length} visible rows`}
-        onClick={download}
-      >
-        {busy ? "Preparing…" : "Download"}
-      </button>
+    <div className="download-list">
+      <span>Download</span>
+      <div className="download-buttons">
+        {(["csv", "xlsx"] as ExportFormat[]).map((format) => (
+          <button
+            className="button secondary"
+            key={format}
+            disabled={busy || rows.length === 0}
+            title={`Download ${rows.length} visible rows as ${format.toUpperCase()}`}
+            onClick={() => download(format)}
+          >
+            <Download size={14} />
+            {busy ? "Preparing…" : format.toUpperCase()}
+          </button>
+        ))}
+      </div>
       {error && (
-        <span style={{ color: "#dc2626", whiteSpace: "normal" }}>{error}</span>
+        <span className="form-error" role="alert">
+          {error}
+        </span>
       )}
-    </span>
+    </div>
   );
 }

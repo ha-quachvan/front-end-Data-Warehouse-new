@@ -1,60 +1,89 @@
+import { Fragment, useEffect, useState, type FormEvent } from "react";
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  Plus,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
+import { api, type Campaign, type CampaignTargets } from "../api";
+import {
+  DataState,
+  DataTable,
+  Notice,
+  PageHeading,
+  PanelHeading,
+  RecordId,
+  SectionHeading,
+  TableFootnote,
+  type Column,
+} from "../components/Dashboard";
+import {
+  DownloadList,
+  RowLimit,
+  type ExportColumn,
+} from "../components/ListTools";
 import { stateName } from "../utils/format";
-import { FormEvent, Fragment, useCallback, useEffect, useState } from "react";
-import { api, Campaign, CampaignTargets } from "../api";
-import { DownloadList, ExportColumn, RowLimit } from "../components/ListTools";
+import { count, percent } from "../utils/display";
 
-const CAMPAIGN_COLUMNS: ExportColumn<Campaign>[] = [
+const campaignExport: ExportColumn<Campaign>[] = [
   { header: "Code", value: (c) => c.campaign_code },
   { header: "Campaign name", value: (c) => c.campaign_name },
   { header: "Description", value: (c) => c.description },
   { header: "Customers", value: (c) => c.total_targets },
 ];
-
-const CUSTOMER_COLUMNS: ExportColumn<CampaignTargets["customers"][number]>[] = [
+type Customer = CampaignTargets["customers"][number];
+const customerExport: ExportColumn<Customer>[] = [
   { header: "Customer ID", value: (c) => c.customer_id },
   { header: "City", value: (c) => c.city },
   { header: "State", value: (c) => stateName(c.state) },
   { header: "Order ID", value: (c) => c.order_id },
+  { header: "Risk (%)", value: (c) => Number((c.risk_score * 100).toFixed(1)) },
+  { header: "Assigned at", value: (c) => c.assigned_at },
+];
+const customerColumns: Column<Customer>[] = [
   {
-    header: "Risk (%)",
-    value: (c) => Number((Number(c.risk_score) * 100).toFixed(1)),
+    key: "id",
+    label: "Customer ID",
+    value: (c) => c.customer_id,
+    render: (c) => <RecordId value={c.customer_id} />,
+  },
+  { key: "city", label: "City", value: (c) => c.city },
+  {
+    key: "state",
+    label: "State",
+    value: (c) => c.state,
+    render: (c) => stateName(c.state),
   },
   {
-    header: "Assigned at",
-    value: (c) => c.assigned_at.replace("T", " ").slice(0, 16),
+    key: "order",
+    label: "Order ID",
+    value: (c) => c.order_id,
+    render: (c) => <RecordId value={c.order_id} />,
+  },
+  {
+    key: "risk",
+    label: "Risk",
+    value: (c) => Number(c.risk_score),
+    numeric: true,
+    render: (c) => <span className="delay-value">{percent(c.risk_score)}</span>,
+  },
+  {
+    key: "assigned",
+    label: "Assigned at",
+    value: (c) => c.assigned_at,
+    render: (c) => c.assigned_at.replace("T", " ").slice(0, 16),
   },
 ];
-
-const th = {
-  textAlign: "left" as const,
-  borderBottom: "1px solid #ddd",
-  padding: "6px 8px",
-};
-const td = {
-  padding: "6px 8px",
-  borderBottom: "1px solid #f0f0f0",
-  verticalAlign: "top" as const,
-};
-const input = {
-  padding: "6px 8px",
-  fontSize: 13,
-  border: "1px solid #ccc",
-  borderRadius: 4,
-  boxSizing: "border-box" as const,
-};
-const pct = (v: number) => `${(Number(v) * 100).toFixed(1)}%`;
-// getJSON báo lỗi dạng "API error 409 on /campaigns — chi tiết": chỉ hiện phần chi tiết cho người dùng
-const errorText = (e: unknown) =>
-  (e instanceof Error ? e.message : String(e)).replace(/^API error .*? — /, "");
-
 function CampaignForm({
   initial,
-  submitLabel,
   onSubmit,
   onCancel,
 }: {
   initial?: Campaign;
-  submitLabel: string;
   onSubmit: (name: string, description: string) => Promise<void>;
   onCancel?: () => void;
 }) {
@@ -62,58 +91,90 @@ function CampaignForm({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    if (!name.trim() || busy) return;
     setError(null);
-    onSubmit(name.trim(), description.trim())
-      .then(() => {
-        if (!initial) {
-          setName("");
-          setDescription("");
-        }
-      })
-      .catch((err) => setError(errorText(err)))
-      .finally(() => setBusy(false));
+    setBusy(true);
+    try {
+      await onSubmit(name.trim(), description.trim());
+      if (!initial) {
+        setName("");
+        setDescription("");
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
   };
-
   return (
-    <form onSubmit={submit} style={{ display: "grid", gap: 8, maxWidth: 640 }}>
-      <input
-        aria-label="Campaign name"
-        placeholder="Campaign name"
-        value={name}
-        maxLength={100}
-        onChange={(e) => setName(e.target.value)}
-        style={input}
-      />
-      <textarea
-        aria-label="Campaign description"
-        placeholder="Campaign description (optional)"
-        value={description}
-        maxLength={1000}
-        rows={2}
-        onChange={(e) => setDescription(e.target.value)}
-        style={{ ...input, fontFamily: "inherit", resize: "vertical" }}
-      />
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="submit" disabled={busy || !name.trim()}>
-          {submitLabel}
-        </button>
-        {onCancel && (
-          <button type="button" onClick={onCancel}>
-            Cancel
+    <form className="campaign-form" onSubmit={submit}>
+      <label className="form-field">
+        <span>
+          Campaign name <span className="required-mark">*</span>
+        </span>
+        <input
+          aria-label="Campaign name"
+          required
+          maxLength={100}
+          placeholder="e.g. Post-delivery check-in"
+          value={name}
+          disabled={busy}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+      <label className="form-field">
+        <span>
+          Campaign description <span className="muted">(optional)</span>
+        </span>
+        <textarea
+          aria-label="Campaign description"
+          rows={3}
+          maxLength={1000}
+          placeholder="Describe the purpose of this customer care campaign…"
+          value={description}
+          disabled={busy}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </label>
+      {error && <Notice error>{error}</Notice>}
+      <div className="form-actions">
+        <span className="form-hint">
+          {initial
+            ? "Update the name and description for this campaign."
+            : "Name required · Description optional"}
+        </span>
+        <div className="action-buttons">
+          {onCancel && (
+            <button
+              className="button secondary"
+              type="button"
+              onClick={onCancel}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            className="button primary"
+            type="submit"
+            disabled={busy || !name.trim()}
+          >
+            {busy ? (
+              <span className="spinner-dot" />
+            ) : initial ? (
+              <Check size={16} />
+            ) : (
+              <Plus size={16} />
+            )}{" "}
+            {busy ? "Saving…" : initial ? "Save" : "Create campaign"}
           </button>
-        )}
+        </div>
       </div>
-      {error && (
-        <p style={{ color: "#dc2626", fontSize: 13, margin: 0 }}>{error}</p>
-      )}
     </form>
   );
 }
-
 function CampaignDetail({
   campaign,
   onChanged,
@@ -124,332 +185,379 @@ function CampaignDetail({
   const [targets, setTargets] = useState<CampaignTargets | null>(null);
   const [limit, setLimit] = useState(50);
   const [error, setError] = useState<string | null>(null);
-  const code = campaign.campaign_code;
-
+  const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    let stale = false; // bỏ kết quả của lần tải cũ nếu số dòng đã đổi
+    let stale = false;
+    setError(null);
     api
-      .campaignTargets(code, limit)
+      .campaignTargets(campaign.campaign_code, limit)
       .then((t) => {
         if (!stale) setTargets(t);
       })
       .catch((e) => {
-        if (!stale) setError(errorText(e));
+        if (!stale) setError(String(e));
       });
     return () => {
       stale = true;
     };
-  }, [code, limit]);
-
-  const clear = () => {
+  }, [campaign.campaign_code, campaign.total_targets, limit, attempt]);
+  const clear = async () => {
     if (
+      busy ||
       !window.confirm(
         `Remove all assigned customers (${targets?.total}) from "${campaign.campaign_name}"?`,
       )
     )
       return;
-    api
-      .clearTargets(code)
-      .then(() => api.campaignTargets(code, limit))
-      .then((t) => {
-        setTargets(t);
-        onChanged();
-      })
-      .catch((e) => setError(errorText(e)));
+    setBusy(true);
+    setError(null);
+    try {
+      await api.clearTargets(campaign.campaign_code);
+      setTargets(await api.campaignTargets(campaign.campaign_code, limit));
+      onChanged();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
   };
-
   return (
-    <div style={{ padding: "4px 8px 16px", fontSize: 13 }}>
-      <p style={{ margin: "4px 0 12px", whiteSpace: "pre-wrap" }}>
-        <b>Description:</b>{" "}
-        {campaign.description ?? (
-          <span style={{ color: "#888" }}>No description</span>
-        )}
+    <div className="campaign-detail">
+      <p className="campaign-description">
+        <strong>Description</strong>
+        <span>{campaign.description || "No description"}</span>
       </p>
-      {error && <p style={{ color: "#dc2626" }}>{error}</p>}
-      {targets && (
-        <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: 12,
-              marginBottom: 8,
-            }}
+      {error && (
+        <Notice error>
+          {error}{" "}
+          <button
+            className="text-button"
+            onClick={() => setAttempt((n) => n + 1)}
           >
-            <b>Assigned customers: {targets.total}</b>
-            {targets.avg_risk !== null && (
-              <span>Average risk {pct(targets.avg_risk)}</span>
-            )}
-            {targets.total > 0 && (
-              <button onClick={clear}>Remove all customers</button>
-            )}
-            {targets.total > 0 && (
-              <span
-                style={{
-                  marginLeft: "auto",
-                  display: "inline-flex",
-                  flexWrap: "wrap",
-                  alignItems: "center",
-                  gap: 12,
-                }}
-              >
-                <RowLimit
-                  limit={limit}
-                  total={targets.total}
-                  onChange={setLimit}
-                />
-                <DownloadList
-                  rows={targets.customers}
-                  columns={CUSTOMER_COLUMNS}
-                  fileName={`customers_${code}_${targets.customers.length}_rows`}
-                />
-              </span>
-            )}
-          </div>
-          {targets.total === 0 ? (
-            <p style={{ color: "#888", margin: 0 }}>
-              No customers assigned yet. Assign customers in{" "}
-              <a href="#/ops">Ops Console</a>.
-            </p>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <div className="table-scroll">
-                <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                  <thead>
-                    <tr>
-                      {[
-                        "Customer",
-                        "City",
-                        "State",
-                        "Order",
-                        "Risk",
-                        "Assigned at",
-                      ].map((h) => (
-                        <th key={h} style={th}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {targets.customers.map((c) => (
-                      <tr key={c.customer_id}>
-                        <td style={td}>{c.customer_id.slice(0, 12)}…</td>
-                        <td style={td}>{c.city}</td>
-                        <td style={td}>{stateName(c.state)}</td>
-                        <td style={td}>{c.order_id.slice(0, 12)}…</td>
-                        <td style={td}>{pct(c.risk_score)}</td>
-                        <td style={td}>
-                          {c.assigned_at.replace("T", " ").slice(0, 16)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            Try again
+          </button>
+        </Notice>
+      )}
+      {!targets && !error ? (
+        <DataState status="loading" />
+      ) : (
+        targets && (
+          <>
+            <div className="detail-toolbar">
+              <div className="detail-stats">
+                <div>
+                  <span>Assigned customers</span>
+                  <strong>{count(targets.total)}</strong>
+                </div>
+                <div>
+                  <span>Average risk</span>
+                  <strong>{percent(targets.avg_risk)}</strong>
+                </div>
+                {targets.total > 0 && (
+                  <button
+                    className="button danger"
+                    onClick={clear}
+                    disabled={busy}
+                  >
+                    <Trash2 size={14} />
+                    {busy ? "Removing…" : "Remove all customers"}
+                  </button>
+                )}
               </div>
+              {targets.total > 0 && (
+                <div className="list-tools">
+                  <RowLimit
+                    limit={limit}
+                    total={targets.total}
+                    onChange={setLimit}
+                  />
+                  <DownloadList
+                    rows={targets.customers}
+                    columns={customerExport}
+                    fileName={`customers_${campaign.campaign_code}_${targets.customers.length}_rows`}
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </>
+            {targets.total === 0 ? (
+              <div className="customers-empty">
+                <Users size={28} />
+                <h3>No customers assigned yet.</h3>
+                <p>
+                  Assign customers in <a href="#/ops">Ops Console</a>.
+                </p>
+              </div>
+            ) : (
+              <div className="surface">
+                <DataTable
+                  rows={targets.customers}
+                  columns={customerColumns}
+                  rowKey={(c) => `${c.customer_id}-${c.order_id}`}
+                  label={`${campaign.campaign_name} customers`}
+                />
+              </div>
+            )}
+          </>
+        )
       )}
     </div>
   );
 }
-
 export default function CampaignManager() {
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [listLimit, setListLimit] = useState(50);
   const [openCode, setOpenCode] = useState<string | null>(null);
   const [editCode, setEditCode] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const reload = useCallback(() => {
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const reload = () => setAttempt((n) => n + 1);
+  useEffect(() => {
+    let stale = false;
+    setError(null);
     api
       .campaigns()
-      .then((rows) => {
-        setCampaigns(rows);
-        setError(null);
+      .then((c) => {
+        if (!stale) setCampaigns(c);
       })
-      .catch((e) => setError(errorText(e)));
-  }, []);
-
-  useEffect(reload, [reload]);
-
-  const shownCampaigns = campaigns?.slice(0, listLimit) ?? [];
-
-  const remove = (c: Campaign) => {
-    const extra =
-      c.total_targets > 0
-        ? ` and its assigned customers (${c.total_targets})`
-        : "";
-    if (!window.confirm(`Delete campaign "${c.campaign_name}"${extra}?`))
+      .catch((e) => {
+        if (!stale) setError(String(e));
+      });
+    return () => {
+      stale = true;
+    };
+  }, [attempt]);
+  const remove = async (c: Campaign) => {
+    if (
+      deleting ||
+      !window.confirm(
+        `Delete campaign "${c.campaign_name}"${c.total_targets > 0 ? ` and its assigned customers (${c.total_targets})` : ""}?`,
+      )
+    )
       return;
-    api
-      .deleteCampaign(c.campaign_code)
-      .then(() => {
-        if (openCode === c.campaign_code) setOpenCode(null);
-        reload();
-      })
-      .catch((e) => setError(errorText(e)));
+    setDeleting(c.campaign_code);
+    setError(null);
+    try {
+      await api.deleteCampaign(c.campaign_code);
+      if (openCode === c.campaign_code) setOpenCode(null);
+      if (editCode === c.campaign_code) setEditCode(null);
+      setMessage(`Deleted "${c.campaign_name}".`);
+      reload();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDeleting(null);
+    }
   };
-
+  const shown = campaigns?.slice(0, listLimit) ?? [];
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Customer care campaigns</h1>
-      <p style={{ color: "#666", marginTop: 0 }}>
-        Manage campaigns for customers at risk of leaving a low rating. Assign
-        customers in <a href="#/ops">Ops Console</a>.
-      </p>
-
-      <section style={{ marginBottom: 32 }}>
-        <h2 style={{ fontSize: 16 }}>Create campaign</h2>
-        <CampaignForm
-          submitLabel="Create campaign"
-          onSubmit={(name, description) =>
-            api.createCampaign(name, description).then(reload)
-          }
+    <div className="campaign-page">
+      <PageHeading
+        eyebrow={["CUSTOMER CARE", "CAMPAIGN MANAGEMENT"]}
+        title="Customer care campaigns"
+        description="Organize thoughtful follow-ups for customers who may need a little extra care."
+      />
+      <section className="dashboard-section">
+        <SectionHeading
+          icon={Plus}
+          title="Create campaign"
+          aside="Name required · Description optional"
         />
+        <div className="surface form-panel">
+          <CampaignForm
+            onSubmit={async (name, description) => {
+              await api.createCampaign(name, description);
+              setMessage(`Created "${name}".`);
+              reload();
+            }}
+          />
+        </div>
       </section>
-
-      <section>
-        <h2 style={{ fontSize: 16 }}>Campaign list</h2>
-        {error && <p style={{ color: "#dc2626", fontSize: 13 }}>{error}</p>}
-        {campaigns === null && !error && (
-          <p role="status" className="empty-state">
-            Loading campaigns…
-          </p>
-        )}
-        {campaigns?.length === 0 && (
-          <p style={{ fontSize: 13, color: "#888" }}>No campaigns yet.</p>
-        )}
-        {campaigns && campaigns.length > 0 && (
-          <div style={{ overflowX: "auto" }}>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                justifyContent: "flex-end",
-                alignItems: "center",
-                gap: 12,
-                fontSize: 13,
-                marginBottom: 8,
-              }}
-            >
+      <section className="dashboard-section">
+        <SectionHeading icon={Users} title="Campaigns" />
+        <div className="surface">
+          <div className="table-toolbar">
+            <PanelHeading
+              title="Your care campaigns"
+              description="View assigned customers or manage a campaign without leaving the list."
+              aside={
+                <span className="small-pill">
+                  {campaigns?.length ?? 0} campaigns
+                </span>
+              }
+            />
+            <div className="list-tools">
               <RowLimit
                 limit={listLimit}
-                total={campaigns.length}
+                total={campaigns?.length ?? null}
                 onChange={setListLimit}
               />
               <DownloadList
-                rows={shownCampaigns}
-                columns={CAMPAIGN_COLUMNS}
-                fileName={`campaigns_${shownCampaigns.length}_rows`}
+                rows={shown}
+                columns={campaignExport}
+                fileName={`campaigns_${shown.length}_rows`}
               />
             </div>
-            <div className="table-scroll">
-              <table
-                style={{
-                  borderCollapse: "collapse",
-                  width: "100%",
-                  fontSize: 13,
-                }}
-              >
-                <thead>
-                  <tr>
-                    <th style={th}>Code</th>
-                    <th style={th}>Campaign name</th>
-                    <th style={{ ...th, textAlign: "right" }}>Customers</th>
-                    <th style={{ ...th, width: 210 }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shownCampaigns.map((c) => (
-                    <Fragment key={c.campaign_code}>
-                      <tr>
-                        <td style={td}>{c.campaign_code}</td>
-                        <td style={td}>{c.campaign_name}</td>
-                        <td style={{ ...td, textAlign: "right" }}>
-                          {c.total_targets}
-                        </td>
-                        <td style={td}>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button
-                              aria-expanded={openCode === c.campaign_code}
-                              onClick={() =>
-                                setOpenCode(
-                                  openCode === c.campaign_code
-                                    ? null
-                                    : c.campaign_code,
-                                )
-                              }
-                            >
-                              {openCode === c.campaign_code
-                                ? "Hide details"
-                                : "Details"}
-                            </button>
-                            <button
-                              onClick={() =>
-                                setEditCode(
-                                  editCode === c.campaign_code
-                                    ? null
-                                    : c.campaign_code,
-                                )
-                              }
-                            >
-                              Edit
-                            </button>
-                            <button onClick={() => remove(c)}>Delete</button>
-                          </div>
-                        </td>
-                      </tr>
-                      {editCode === c.campaign_code && (
-                        <tr>
-                          <td
-                            colSpan={4}
-                            style={{
-                              ...td,
-                              background: "#f9fafb",
-                              padding: 12,
-                            }}
-                          >
-                            <CampaignForm
-                              initial={c}
-                              submitLabel="Save"
-                              onCancel={() => setEditCode(null)}
-                              onSubmit={(name, description) =>
-                                api
-                                  .updateCampaign(
-                                    c.campaign_code,
-                                    name,
-                                    description,
-                                  )
-                                  .then(() => {
-                                    setEditCode(null);
-                                    reload();
-                                  })
-                              }
-                            />
-                          </td>
-                        </tr>
-                      )}
-                      {openCode === c.campaign_code && (
-                        <tr>
-                          <td
-                            colSpan={4}
-                            style={{ ...td, background: "#f9fafb" }}
-                          >
-                            <CampaignDetail campaign={c} onChanged={reload} />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </div>
-        )}
+          {message && (
+            <Notice>
+              <Check size={14} />
+              {message}
+            </Notice>
+          )}
+          {error && (
+            <Notice error>
+              {error}{" "}
+              <button className="text-button" onClick={reload}>
+                Try again
+              </button>
+            </Notice>
+          )}
+          {campaigns === null && !error ? (
+            <DataState status="loading" title="Loading campaigns…" />
+          ) : campaigns?.length === 0 ? (
+            <DataState
+              status="empty"
+              title="No campaigns yet."
+              description="Create a campaign above to get started."
+            />
+          ) : (
+            campaigns && (
+              <div
+                className="table-scroll"
+                role="region"
+                aria-label="Campaign list"
+                tabIndex={0}
+              >
+                <table className="campaign-table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Campaign name</th>
+                      <th className="numeric">Customers</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((c) => (
+                      <Fragment key={c.campaign_code}>
+                        <tr>
+                          <td>
+                            <span className="campaign-code">
+                              {c.campaign_code}
+                            </span>
+                          </td>
+                          <td className="campaign-name">{c.campaign_name}</td>
+                          <td className="numeric">
+                            <span
+                              className={`customer-count ${c.total_targets ? "has-customers" : ""}`}
+                            >
+                              {count(c.total_targets)}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="action-buttons">
+                              <button
+                                className="button secondary small"
+                                aria-expanded={openCode === c.campaign_code}
+                                onClick={() => {
+                                  setOpenCode((v) =>
+                                    v === c.campaign_code
+                                      ? null
+                                      : c.campaign_code,
+                                  );
+                                  setEditCode(null);
+                                }}
+                              >
+                                {openCode === c.campaign_code ? (
+                                  <ChevronUp size={13} />
+                                ) : (
+                                  <ChevronDown size={13} />
+                                )}{" "}
+                                {openCode === c.campaign_code
+                                  ? "Hide details"
+                                  : "Details"}
+                              </button>
+                              <button
+                                className="button secondary small"
+                                onClick={() => {
+                                  setEditCode((v) =>
+                                    v === c.campaign_code
+                                      ? null
+                                      : c.campaign_code,
+                                  );
+                                  setOpenCode(null);
+                                }}
+                              >
+                                <Pencil size={13} />
+                                Edit
+                              </button>
+                              <button
+                                className="button danger small"
+                                disabled={deleting !== null}
+                                onClick={() => remove(c)}
+                              >
+                                <Trash2 size={13} />
+                                {deleting === c.campaign_code
+                                  ? "Deleting…"
+                                  : "Delete"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {editCode === c.campaign_code && (
+                          <tr>
+                            <td colSpan={4} className="expansion-cell">
+                              <div className="campaign-edit">
+                                <div className="handling-title">
+                                  <h3>Edit campaign</h3>
+                                  <button
+                                    className="icon-button"
+                                    aria-label="Close edit form"
+                                    onClick={() => setEditCode(null)}
+                                  >
+                                    <X size={17} />
+                                  </button>
+                                </div>
+                                <CampaignForm
+                                  initial={c}
+                                  onCancel={() => setEditCode(null)}
+                                  onSubmit={async (name, description) => {
+                                    await api.updateCampaign(
+                                      c.campaign_code,
+                                      name,
+                                      description,
+                                    );
+                                    setEditCode(null);
+                                    setMessage(`Saved "${name}".`);
+                                    reload();
+                                  }}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        {openCode === c.campaign_code && (
+                          <tr>
+                            <td colSpan={4} className="expansion-cell">
+                              <CampaignDetail campaign={c} onChanged={reload} />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+          <TableFootnote>
+            Showing {shown.length} of {campaigns?.length ?? "…"} campaigns.
+            Downloads include the displayed rows and complete identifiers.
+          </TableFootnote>
+        </div>
       </section>
     </div>
   );

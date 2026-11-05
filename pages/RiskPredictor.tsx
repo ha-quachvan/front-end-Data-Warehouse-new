@@ -1,37 +1,32 @@
-import { optionName, inputSourceName } from "../utils/format";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  ChevronDown,
+  Info,
+  MapPin,
+  Package,
+  RotateCcw,
+  ShieldCheck,
+  Star,
+  Truck,
+} from "lucide-react";
 import {
   api,
-  PredictInput,
-  PredictOptions,
-  PredictResult,
-  RiskModel,
-  RouteDistance,
+  type PredictInput,
+  type PredictOptions,
+  type PredictResult,
+  type RiskModel,
+  type RouteDistance,
 } from "../api";
-
-const LEVEL_COLOR: Record<string, string> = {
-  High: "#dc2626",
-  Medium: "#d97706",
-  Low: "#16a34a",
-};
-const pct = (v: number | null) =>
-  v === null ? "—" : `${(Number(v) * 100).toFixed(1)}%`;
-const card = { border: "1px solid #ddd", borderRadius: 8, padding: 16 };
-const label = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 4,
-  fontSize: 13,
-};
-const th = {
-  textAlign: "left" as const,
-  borderBottom: "1px solid #ddd",
-  padding: "4px 8px",
-};
-const td = { padding: "4px 8px" };
-
-// Tên dễ hiểu cho các đặc trưng trả về trong inputs_used / derived
-const FEATURE_LABEL: Record<string, string> = {
+import {
+  DataState,
+  Notice,
+  PageHeading,
+  RiskBadge,
+  SelectField,
+} from "../components/Dashboard";
+import { optionName, inputSourceName } from "../utils/format";
+import { count, dateLabel, percent } from "../utils/display";
+const FEATURES: Record<string, string> = {
   distance_km: "Seller → customer distance (km)",
   estimated_days: "Estimated delivery time (days)",
   shipping_limit_days: "Handoff deadline (days after purchase)",
@@ -47,9 +42,8 @@ const FEATURE_LABEL: Record<string, string> = {
   payment_installments: "Payment installments",
   payment_type: "Payment method",
   slack_days: "Days until estimated delivery at handoff",
-  handoff_vs_limit_days: "Handoff delay past deadline (days; > 0 means late)",
+  handoff_vs_limit_days: "Handoff delay past deadline (days)",
 };
-
 type OrderForm = {
   seller_state: string;
   customer_state: string;
@@ -61,49 +55,24 @@ type OrderForm = {
   n_items: string;
   payment_type: string;
 };
-
-const toNumber = (v: string) => (v.trim() === "" ? null : Number(v));
-const toDate = (v: string) => (v === "" ? null : v);
-// "2018-07-02" + 6.5 ngày -> "08/07/2018" (bỏ phần lẻ giờ, giống cách ETL tính theo ngày)
-const addDays = (isoDate: string, days: number) => {
-  const d = new Date(`${isoDate}T00:00:00`);
-  d.setDate(d.getDate() + Math.floor(days));
-  return d.toLocaleDateString("en-US", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+const INITIAL: OrderForm = {
+  seller_state: "SP",
+  customer_state: "RJ",
+  category: "bed_bath_table",
+  purchase_date: "2018-07-02",
+  estimated_date: "2018-07-25",
+  total_price: "",
+  total_freight: "",
+  n_items: "",
+  payment_type: "",
 };
-
-function Select({
-  value,
-  values,
-  onChange,
-  empty,
-  accessibleLabel,
-}: {
-  value: string;
-  values: string[];
-  onChange: (v: string) => void;
-  empty?: string;
-  accessibleLabel: string;
-}) {
-  return (
-    <select
-      aria-label={accessibleLabel}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {empty !== undefined && <option value="">{empty}</option>}
-      {values.map((v) => (
-        <option key={v} value={v}>
-          {optionName(v)}
-        </option>
-      ))}
-    </select>
-  );
-}
-
+const toNumber = (v: string) => (v.trim() === "" ? null : Number(v));
+const toDate = (v: string) => v || null;
+const addDays = (date: string, days: number) => {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + Math.floor(days));
+  return dateLabel(d.toISOString());
+};
 function ResultView({
   result,
   model,
@@ -111,126 +80,104 @@ function ResultView({
   result: PredictResult;
   model: RiskModel;
 }) {
-  const color = LEVEL_COLOR[result.risk_level];
+  const color =
+    result.risk_level === "High"
+      ? "#db665a"
+      : result.risk_level === "Medium"
+        ? "#d79b31"
+        : "#348b74";
   const history = result.route_history;
-  const historyRate =
+  const rate =
     history &&
     (model === "late_delivery" ? history.late_rate : history.low_review_rate);
   return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-        <span style={{ fontSize: 36, fontWeight: 700, color }}>
-          {pct(result.risk_score)}
-        </span>
-        <span style={{ fontSize: 16, fontWeight: 600, color }}>
-          Risk level {result.risk_level}
-        </span>
+    <div className="prediction-result" aria-live="polite">
+      <div className="result-top">
+        <strong style={{ color }}>{percent(result.risk_score)}</strong>
+        <RiskBadge level={result.risk_level} />
       </div>
-      {/* Thanh rủi ro: vạch đứt = ngưỡng Medium (t/2) và High (t) */}
       <div
-        style={{
-          position: "relative",
-          height: 10,
-          background: "#f3f4f6",
-          borderRadius: 5,
-          margin: "8px 0 4px",
-        }}
+        className="risk-meter"
+        aria-label={`Risk ${percent(result.risk_score)}`}
       >
         <div
           style={{
-            width: `${result.risk_score * 100}%`,
-            height: "100%",
+            width: `${Math.max(0, Math.min(100, result.risk_score * 100))}%`,
             background: color,
-            borderRadius: 5,
           }}
         />
         {[result.threshold / 2, result.threshold].map((t) => (
-          <div
-            key={t}
-            style={{
-              position: "absolute",
-              left: `${t * 100}%`,
-              top: -3,
-              height: 16,
-              borderLeft: "2px dashed #6b7280",
-            }}
-          />
+          <i key={t} style={{ left: `${t * 100}%` }} />
         ))}
       </div>
-      <p style={{ fontSize: 12, color: "#666", margin: 0 }}>
-        High at ≥ {pct(result.threshold)}, Medium at ≥{" "}
-        {pct(result.threshold / 2)} (thresholds based on business costs).
+      <p className="threshold-caption">
+        High at ≥ {percent(result.threshold)} · Medium at ≥{" "}
+        {percent(result.threshold / 2)} (thresholds based on business costs).
       </p>
       {history && (
-        <p style={{ fontSize: 13 }}>
-          Route history: {history.orders.toLocaleString("en-US")} orders,{" "}
-          {model === "late_delivery"
-            ? "late delivery rate"
-            : "rate of ratings ≤ 2 stars"}{" "}
-          <b>{pct(historyRate)}</b>.
-        </p>
+        <div className="route-history">
+          <MapPin size={17} />
+          <div>
+            <strong>Route history</strong>
+            <p>
+              {count(history.orders)} orders · {percent(rate)}{" "}
+              {model === "late_delivery"
+                ? "late delivery rate"
+                : "low rating rate"}
+            </p>
+          </div>
+        </div>
       )}
-      <details>
-        <summary style={{ fontSize: 13, cursor: "pointer" }}>
-          Model inputs ({result.inputs_used.length} features)
+      <details className="model-inputs">
+        <summary>
+          <ChevronDown size={14} />
+          Model inputs ({result.inputs_used.length}{" "}
+          {result.inputs_used.length === 1 ? "feature" : "features"})
         </summary>
-        <div className="table-scroll">
-          <table
-            style={{
-              borderCollapse: "collapse",
-              width: "100%",
-              fontSize: 12,
-              marginTop: 6,
-            }}
-          >
+        <div
+          className="table-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Model input values"
+        >
+          <table>
             <thead>
               <tr>
-                <th style={th}>Feature</th>
-                <th style={th}>Value</th>
-                <th style={th}>Source</th>
+                <th>Feature</th>
+                <th>Value</th>
+                <th>Source</th>
               </tr>
             </thead>
             <tbody>
-              {Object.entries(result.derived).map(([f, v]) => (
-                <tr key={f} style={{ background: "#eff6ff" }}>
-                  <td style={td}>{FEATURE_LABEL[f] ?? f}</td>
-                  <td style={td}>{v ?? "—"}</td>
-                  <td style={td}>Calculated from dates</td>
+              {Object.entries(result.derived).map(([key, value]) => (
+                <tr className="derived-row" key={`derived-${key}`}>
+                  <td>{FEATURES[key] ?? key}</td>
+                  <td>{value ?? "—"}</td>
+                  <td>Calculated from dates</td>
                 </tr>
               ))}
-              {result.inputs_used.map((r) => (
+              {result.inputs_used.map((row) => (
                 <tr
-                  key={r.feature}
-                  style={{ color: r.source === "nhập" ? "#111" : "#6b7280" }}
+                  key={row.feature}
+                  className={row.source === "nhập" ? "" : "default-row"}
                 >
-                  <td style={td}>{FEATURE_LABEL[r.feature] ?? r.feature}</td>
-                  <td style={td}>{r.value ?? "—"}</td>
-                  <td
-                    style={{
-                      ...td,
-                      fontStyle: r.source === "nhập" ? "normal" : "italic",
-                    }}
-                  >
-                    {inputSourceName(r.source)}
-                  </td>
+                  <td>{FEATURES[row.feature] ?? row.feature}</td>
+                  <td>{row.value ?? "—"}</td>
+                  <td>{inputSourceName(row.source)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p style={{ fontSize: 12, color: "#666" }}>
-          Gray rows are typical values filled in automatically for fields left
-          blank.
+        <p className="field-hint">
+          Muted rows show values supplied by the backend for fields left blank.
         </p>
       </details>
     </div>
   );
 }
-
 function ToolCard({
   model,
-  title,
-  note,
   order,
   extra,
   buildExtra,
@@ -238,132 +185,158 @@ function ToolCard({
   resetKey,
 }: {
   model: RiskModel;
-  title: string;
-  note: string;
   order: PredictInput | null;
-  extra: React.ReactNode;
+  extra: ReactNode;
   buildExtra: () => Partial<PredictInput>;
   ready: boolean;
   resetKey: string;
 }) {
   const [result, setResult] = useState<PredictResult | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
   const generation = useRef(0);
+  const late = model === "late_delivery";
   useEffect(() => {
-    generation.current += 1;
+    generation.current++;
     setResult(null);
     setError(null);
-    setLoading(false);
+    setBusy(false);
+    return () => {
+      generation.current++;
+    };
   }, [resetKey]);
-  const run = () => {
-    if (!order || !ready) return;
+  const run = async () => {
+    if (!order || !ready || busy) return;
     const request = ++generation.current;
+    setBusy(true);
     setError(null);
-    setLoading(true);
-    api
-      .predict(model, { ...order, ...buildExtra() })
-      .then((value) => {
-        if (request === generation.current) setResult(value);
-      })
-      .catch((e) => {
-        if (request === generation.current) {
-          setResult(null);
-          setError(String(e));
-        }
-      })
-      .finally(() => {
-        if (request === generation.current) setLoading(false);
-      });
+    setResult(null);
+    try {
+      const value = await api.predict(model, { ...order, ...buildExtra() });
+      if (request === generation.current) setResult(value);
+    } catch (e) {
+      if (request === generation.current) setError(String(e));
+    } finally {
+      if (request === generation.current) setBusy(false);
+    }
   };
-
+  const Icon = late ? Truck : Star;
   return (
-    <div style={{ ...card, flex: "1 1 440px" }}>
-      <h2 style={{ fontSize: 16, margin: "0 0 4px" }}>{title}</h2>
-      <p style={{ fontSize: 12, color: "#888", marginTop: 0 }}>{note}</p>
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 12,
-          alignItems: "flex-end",
-        }}
-      >
-        {extra}
-        <button
-          onClick={run}
-          disabled={!ready || loading}
-          style={{ padding: "6px 16px" }}
-        >
-          {loading ? "Calculating…" : "Predict"}
-        </button>
+    <section className="surface predictor-card">
+      <div className="predictor-card-heading">
+        <span className={`kpi-icon ${late ? "blue" : "amber"}`}>
+          <Icon size={20} />
+        </span>
+        <div>
+          <h2>{late ? "Late delivery risk" : "Low rating risk (≤ 2 stars)"}</h2>
+          <p>
+            {late
+              ? "Assess risk at carrier handoff and plan a follow-up."
+              : "Assess risk after delivery, before the customer leaves a review."}
+          </p>
+        </div>
       </div>
-      {error && <p style={{ color: "crimson", fontSize: 13 }}>{error}</p>}
-      {result && <ResultView result={result} model={model} />}
-    </div>
+      <div className="prediction-fields">{extra}</div>
+      <button
+        className="button primary"
+        disabled={!ready || busy}
+        onClick={run}
+      >
+        <ShieldCheck size={16} />
+        {busy ? "Calculating…" : "Predict"}
+      </button>
+      {error && <Notice error>{error}</Notice>}
+      {result ? (
+        <ResultView result={result} model={model} />
+      ) : (
+        <div className="prediction-placeholder" role="status">
+          <span className="state-icon">
+            <ShieldCheck size={26} className={busy ? "spin" : ""} />
+          </span>
+          <h3>{busy ? "Requesting prediction…" : "Ready to predict"}</h3>
+          <p>
+            {busy
+              ? "Waiting for the backend response."
+              : "Review the order details, then select Predict to request a risk estimate."}
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
-
 export default function RiskPredictor() {
   const [options, setOptions] = useState<PredictOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState<OrderForm>({
-    seller_state: "SP",
-    customer_state: "RJ",
-    category: "bed_bath_table",
-    purchase_date: "2018-07-02",
-    estimated_date: "2018-07-25",
-    total_price: "",
-    total_freight: "",
-    n_items: "",
-    payment_type: "",
-  });
+  const [attempt, setAttempt] = useState(0);
+  const [form, setForm] = useState<OrderForm>(INITIAL);
   const [carrierDate, setCarrierDate] = useState("");
-  // Hạn bàn giao = ngày mua + N ngày; N lấy sẵn theo quy định sàn, sửa được
   const [limitDays, setLimitDays] = useState("");
   const [deliveredDate, setDeliveredDate] = useState("");
-  // Khoảng cách: tự điền theo tuyến mỗi khi đổi bang; người dùng sửa tay thì gửi giá trị đã sửa
-  const [typicalDistance, setTypicalDistance] = useState<RouteDistance | null>(
-    null,
-  );
   const [distance, setDistance] = useState("");
-  const distanceEdited =
-    typicalDistance !== null &&
-    distance !== String(typicalDistance.distance_km);
-
+  const [typical, setTypical] = useState<RouteDistance | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const [distanceLoading, setDistanceLoading] = useState(false);
+  const [routeAttempt, setRouteAttempt] = useState(0);
   useEffect(() => {
+    let stale = false;
+    setError(null);
     api
       .predictOptions()
       .then((o) => {
+        if (stale) return;
         setOptions(o);
         if (o.shipping_limit) setLimitDays(String(o.shipping_limit.days));
+        setForm((f) => ({
+          ...f,
+          seller_state: o.seller_state.includes(f.seller_state)
+            ? f.seller_state
+            : (o.seller_state[0] ?? ""),
+          customer_state: o.customer_state.includes(f.customer_state)
+            ? f.customer_state
+            : (o.customer_state[0] ?? ""),
+          category: o.category.includes(f.category)
+            ? f.category
+            : (o.category[0] ?? ""),
+        }));
       })
-      .catch((e) => setError(String(e)));
-  }, []);
-
-  useEffect(() => {
-    if (!options) return;
-    let stale = false;
-    setTypicalDistance(null);
-    api
-      .routeDistance(form.seller_state, form.customer_state)
-      .then((d) => {
-        if (stale) return;
-        setTypicalDistance(d);
-        setDistance(String(d.distance_km));
-      })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (!stale) setError(String(e));
+      });
     return () => {
       stale = true;
     };
-  }, [options, form.seller_state, form.customer_state]);
-
+  }, [attempt]);
+  useEffect(() => {
+    if (!options || !form.seller_state || !form.customer_state) return;
+    let stale = false;
+    setTypical(null);
+    setDistance("");
+    setRouteError(null);
+    setDistanceLoading(true);
+    api
+      .routeDistance(form.seller_state, form.customer_state)
+      .then((d) => {
+        if (!stale) {
+          setTypical(d);
+          setDistance(String(d.distance_km));
+        }
+      })
+      .catch((e) => {
+        if (!stale) setRouteError(String(e));
+      })
+      .finally(() => {
+        if (!stale) setDistanceLoading(false);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [options, form.seller_state, form.customer_state, routeAttempt]);
+  const update = (key: keyof OrderForm) => (value: string) =>
+    setForm((f) => ({ ...f, [key]: value }));
   const policy = options?.shipping_limit;
   const limitEdited = !!policy && limitDays !== String(policy.days);
-
-  const set = (field: keyof OrderForm) => (value: string) =>
-    setForm((f) => ({ ...f, [field]: value }));
+  const distanceEdited =
+    distance !== "" && (!typical || distance !== String(typical.distance_km));
   const dateError =
     !!form.purchase_date &&
     !!form.estimated_date &&
@@ -373,24 +346,18 @@ export default function RiskPredictor() {
       (v) => v !== "" && (!Number.isFinite(Number(v)) || Number(v) < 0),
     ) ||
     (form.n_items !== "" &&
-      (!Number.isInteger(Number(form.n_items)) || Number(form.n_items) < 1));
+      (!Number.isInteger(Number(form.n_items)) || Number(form.n_items) < 1)) ||
+    (limitDays !== "" && Number(limitDays) > 60);
   const ready =
     !!options &&
+    !!form.seller_state &&
+    !!form.customer_state &&
+    !!form.category &&
     !!form.purchase_date &&
     !!form.estimated_date &&
     !dateError &&
-    !numericError;
-  const lateReady =
-    ready && (!carrierDate || carrierDate >= form.purchase_date);
-  const reviewReady =
-    ready && (!deliveredDate || deliveredDate >= form.purchase_date);
-  const resetKey = JSON.stringify([
-    form,
-    distance,
-    carrierDate,
-    deliveredDate,
-    limitDays,
-  ]);
+    !numericError &&
+    !distanceLoading;
   const order: PredictInput | null = ready
     ? {
         seller_state: form.seller_state,
@@ -405,265 +372,295 @@ export default function RiskPredictor() {
         distance_km: distanceEdited ? toNumber(distance) : null,
       }
     : null;
-
+  const resetKey = JSON.stringify([
+    form,
+    distance,
+    carrierDate,
+    deliveredDate,
+    limitDays,
+  ]);
+  const select = (
+    key: "seller_state" | "customer_state" | "category" | "payment_type",
+    label: string,
+    empty?: string,
+  ) => (
+    <SelectField
+      label={label}
+      value={form[key]}
+      onChange={update(key)}
+      options={[
+        ...(empty ? [{ value: "", label: empty }] : []),
+        ...(options?.[key] ?? []).map((v) => ({
+          value: v,
+          label: optionName(v),
+        })),
+      ]}
+    />
+  );
+  const reset = () => {
+    setForm(INITIAL);
+    setCarrierDate("");
+    setDeliveredDate("");
+    setLimitDays(policy ? String(policy.days) : "");
+    setDistance(typical ? String(typical.distance_km) : "");
+  };
   return (
-    <div
-      style={{
-        fontFamily: "system-ui, sans-serif",
-        padding: 24,
-        maxWidth: 1100,
-        margin: "0 auto",
-      }}
-    >
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>
-        Predict risk for an order
-      </h1>
-      <p style={{ color: "#666", marginTop: 0 }}>
-        Enter order details to estimate the probability of late delivery or a
-        rating of 2 stars or less using the trained HGB model. Blank fields use
-        typical values for the route or category.
-      </p>
-      {error && (
-        <p style={{ color: "crimson" }}>Unable to load data: {error}</p>
-      )}
-
-      <section style={{ ...card, marginBottom: 16 }}>
-        <h2 style={{ fontSize: 16, margin: "0 0 12px" }}>Order details</h2>
-        {options && (
+    <div className="predictor-page">
+      <PageHeading
+        eyebrow={["DECISION SUPPORT", "ORDER RISK EXPLORER"]}
+        title="Predict risk for an order"
+        description="Explore delivery risk and customer satisfaction using the trained model behind your API."
+        actions={
+          <button className="button secondary" onClick={reset}>
+            <RotateCcw size={16} />
+            Reset form
+          </button>
+        }
+      />
+      <div className="surface order-details">
+        <div className="predictor-card-heading">
+          <span className="kpi-icon blue">
+            <Package size={21} />
+          </span>
+          <div>
+            <h2>Order details</h2>
+            <p>
+              Shared by both risk cards. Blank optional fields use values
+              supplied by the backend.
+            </p>
+          </div>
+        </div>
+        {!options ? (
+          <DataState
+            status={error ? "error" : "loading"}
+            description={error ?? undefined}
+            retry={error ? () => setAttempt((n) => n + 1) : undefined}
+          />
+        ) : (
           <>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-              <label style={label}>
-                Seller state
-                <Select
-                  value={form.seller_state}
-                  accessibleLabel="Seller state"
-                  values={options.seller_state}
-                  onChange={set("seller_state")}
-                />
-              </label>
-              <label style={label}>
-                Customer state
-                <Select
-                  value={form.customer_state}
-                  accessibleLabel="Customer state"
-                  values={options.customer_state}
-                  onChange={set("customer_state")}
-                />
-              </label>
-              <label style={label}>
+            <div className="order-fields">
+              {select("seller_state", "Seller state")}
+              {select("customer_state", "Customer state")}
+              <label className="form-field">
                 Distance (km)
                 <input
                   type="number"
+                  aria-label="Distance (km)"
                   min={0}
+                  step="any"
                   value={distance}
+                  disabled={distanceLoading}
                   onChange={(e) => setDistance(e.target.value)}
-                  style={{ width: 100 }}
                 />
-                <span style={{ fontSize: 11, color: "#888", maxWidth: 170 }}>
-                  {!typicalDistance ? (
+                <span className="field-hint">
+                  {distanceLoading ? (
                     "Calculating…"
                   ) : distanceEdited ? (
                     <>
-                      Edited ·{" "}
-                      <a
-                        href="#/predict"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setDistance(String(typicalDistance.distance_km));
-                        }}
-                      >
-                        restore {typicalDistance.distance_km} km
-                      </a>
+                      {"Edited · "}
+                      {typical && (
+                        <button
+                          className="text-button"
+                          onClick={() =>
+                            setDistance(String(typical.distance_km))
+                          }
+                          type="button"
+                        >
+                          restore {typical.distance_km} km
+                        </button>
+                      )}
                     </>
-                  ) : typicalDistance.source === "trung vị tuyến" ? (
-                    `Median from ${typicalDistance.orders.toLocaleString("en-US")} historical orders on this route`
-                  ) : typicalDistance.source === "tâm 2 bang" ? (
-                    "Estimated from state centers (limited route history)"
-                  ) : (
+                  ) : typical?.source === "trung vị tuyến" ? (
+                    `Median from ${count(typical.orders)} historical orders on this route`
+                  ) : typical?.source === "tâm 2 bang" ? (
+                    "Estimated from state centers"
+                  ) : typical ? (
                     "Overall marketplace median"
+                  ) : (
+                    "Enter a distance, or leave blank for the backend default."
                   )}
                 </span>
               </label>
-              <label style={label}>
-                Category
-                <Select
-                  value={form.category}
-                  accessibleLabel="Category"
-                  values={options.category}
-                  onChange={set("category")}
-                />
-              </label>
-              <label style={label}>
+              {select("category", "Category")}
+              <label className="form-field">
                 Purchase date
                 <input
                   type="date"
+                  aria-label="Purchase date"
                   value={form.purchase_date}
-                  onChange={(e) => set("purchase_date")(e.target.value)}
+                  onChange={(e) => update("purchase_date")(e.target.value)}
                 />
               </label>
-              <label style={label}>
+              <label className="form-field">
                 Estimated delivery date
                 <input
                   type="date"
+                  aria-label="Estimated delivery date"
                   value={form.estimated_date}
-                  onChange={(e) => set("estimated_date")(e.target.value)}
+                  onChange={(e) => update("estimated_date")(e.target.value)}
                 />
               </label>
             </div>
-            <details style={{ marginTop: 12 }}>
-              <summary style={{ fontSize: 13, cursor: "pointer" }}>
-                Additional details (optional)
+            {routeError && (
+              <Notice error>
+                Unable to load the default route distance.{" "}
+                <button
+                  className="text-button"
+                  onClick={() => setRouteAttempt((n) => n + 1)}
+                >
+                  Try again
+                </button>
+              </Notice>
+            )}
+            <details className="optional-details">
+              <summary>
+                <ChevronDown size={14} />
+                Optional details
               </summary>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 16,
-                  marginTop: 8,
-                }}
-              >
-                <label style={label}>
+              <div className="optional-fields">
+                <label className="form-field">
                   Order value (R$)
                   <input
                     type="number"
                     min={0}
+                    step="any"
                     value={form.total_price}
-                    onChange={(e) => set("total_price")(e.target.value)}
-                    style={{ width: 110 }}
+                    onChange={(e) => update("total_price")(e.target.value)}
+                    placeholder="Backend default"
                   />
                 </label>
-                <label style={label}>
+                <label className="form-field">
                   Shipping cost (R$)
                   <input
                     type="number"
                     min={0}
+                    step="any"
                     value={form.total_freight}
-                    onChange={(e) => set("total_freight")(e.target.value)}
-                    style={{ width: 110 }}
+                    onChange={(e) => update("total_freight")(e.target.value)}
+                    placeholder="Backend default"
                   />
                 </label>
-                <label style={label}>
+                <label className="form-field">
                   Number of items
                   <input
                     type="number"
                     min={1}
+                    step={1}
                     value={form.n_items}
-                    onChange={(e) => set("n_items")(e.target.value)}
-                    style={{ width: 80 }}
+                    onChange={(e) => update("n_items")(e.target.value)}
+                    placeholder="Backend default"
                   />
                 </label>
-                <label style={label}>
-                  Payment
-                  <Select
-                    value={form.payment_type}
-                    accessibleLabel="Payment"
-                    values={options.payment_type}
-                    onChange={set("payment_type")}
-                    empty="(most common)"
-                  />
-                </label>
+                {select("payment_type", "Payment", "(most common)")}
               </div>
             </details>
           </>
         )}
-      </section>
-
+      </div>
       {(dateError ||
         numericError ||
         (carrierDate && carrierDate < form.purchase_date) ||
         (deliveredDate && deliveredDate < form.purchase_date)) && (
-        <p role="alert" className="notice error">
+        <Notice error>
           Check your inputs: dates must be on or after the purchase date;
-          amounts, distance and the handoff deadline must be non-negative; the
-          number of items must be a whole number of at least 1.
-        </p>
+          amounts and distance must be non-negative; the handoff deadline must
+          be 0–60 days; the number of items must be a whole number of at least
+          1.
+        </Notice>
       )}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+      <div className="prediction-grid">
         <ToolCard
           model="late_delivery"
-          title="Late delivery risk"
-          note="Use when the seller hands the order to the carrier. If risk is high, contact the seller or carrier and notify the customer."
           order={order}
           resetKey={resetKey}
-          ready={lateReady}
+          ready={ready && (!carrierDate || carrierDate >= form.purchase_date)}
+          buildExtra={() => ({
+            carrier_date: toDate(carrierDate),
+            shipping_limit_days:
+              limitDays.trim() !== "" && (!policy || limitEdited)
+                ? toNumber(limitDays)
+                : null,
+          })}
           extra={
             <>
-              <label style={label}>
+              <label className="form-field">
                 Carrier handoff date
                 <input
                   type="date"
+                  aria-label="Carrier handoff date"
                   value={carrierDate}
                   onChange={(e) => setCarrierDate(e.target.value)}
                 />
+                <span className="field-hint">
+                  Leave blank to use the backend default.
+                </span>
               </label>
-              <label style={label}>
+              <label className="form-field">
                 Handoff deadline (days after purchase)
                 <input
                   type="number"
+                  aria-label="Handoff deadline (days after purchase)"
                   min={0}
                   max={60}
                   value={limitDays}
                   onChange={(e) => setLimitDays(e.target.value)}
-                  style={{ width: 80 }}
                 />
-                <span style={{ fontSize: 11, color: "#888", maxWidth: 190 }}>
-                  {limitDays !== "" && form.purchase_date !== "" && (
+                <span className="field-hint">
+                  {limitDays !== "" && form.purchase_date && !numericError && (
                     <>= {addDays(form.purchase_date, Number(limitDays))} · </>
                   )}
-                  {!policy ? (
-                    ""
-                  ) : limitEdited ? (
-                    <>
-                      edited ·{" "}
-                      <a
-                        href="#/predict"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setLimitDays(String(policy.days));
-                        }}
-                      >
-                        restore {policy.days} days
-                      </a>
-                    </>
-                  ) : policy.source === "quy định sàn" ? (
+                  {limitEdited ? (
+                    <button
+                      className="text-button"
+                      onClick={() => setLimitDays(String(policy?.days))}
+                    >
+                      restore {policy?.days} days
+                    </button>
+                  ) : policy?.source === "quy định sàn" ? (
                     "marketplace policy"
+                  ) : policy ? (
+                    "historical median"
                   ) : (
-                    "default: historical median"
+                    "Backend default"
                   )}
                 </span>
               </label>
             </>
           }
-          buildExtra={() => ({
-            carrier_date: toDate(carrierDate),
-            shipping_limit_days: limitEdited ? toNumber(limitDays) : null,
-          })}
         />
         <ToolCard
           model="low_review"
-          title="Low rating risk (≤ 2 stars)"
-          note="Use just after delivery, before the customer leaves a review. If risk is high, consider a voucher or a care call."
           order={order}
           resetKey={resetKey}
-          ready={reviewReady}
+          ready={
+            ready && (!deliveredDate || deliveredDate >= form.purchase_date)
+          }
+          buildExtra={() => ({ delivered_date: toDate(deliveredDate) })}
           extra={
-            <label style={label}>
+            <label className="form-field">
               Actual delivery date
               <input
                 type="date"
+                aria-label="Actual delivery date"
                 value={deliveredDate}
                 onChange={(e) => setDeliveredDate(e.target.value)}
               />
+              <span className="field-hint">
+                Leave blank to use the backend default.
+              </span>
             </label>
           }
-          buildExtra={() => ({ delivered_date: toDate(deliveredDate) })}
         />
       </div>
-      <p style={{ fontSize: 12, color: "#888" }}>
-        Blank dates use typical delivery times for the route (for example,
-        delivery date = purchase date + median route delivery days). Expand
-        "Model inputs" to see the values used.
-      </p>
+      <div className="predictor-note">
+        <Info size={16} />
+        <p>
+          Changing any order input clears previous results. Blank optional
+          values are sent as empty values, not implicit zeroes. Expand Model
+          inputs after prediction to inspect the actual values and sources
+          returned by the backend.
+        </p>
+      </div>
     </div>
   );
 }
