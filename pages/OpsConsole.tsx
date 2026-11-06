@@ -1,14 +1,5 @@
-import { useEffect, useState } from "react";
-import {
-  Check,
-  MessageSquare,
-  ShieldCheck,
-  SlidersHorizontal,
-  Star,
-  Truck,
-  Users,
-  X,
-} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, SlidersHorizontal, Star, Users, X } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -199,6 +190,7 @@ function RiskyOrders({ model }: { model: RiskModel }) {
   const [summary, setSummary] = useState<RiskSummaryRow[] | null>(null);
   const [orders, setOrders] = useState<RiskyOrder[]>([]);
   const [selected, setSelected] = useState<RiskyOrder | null>(null);
+  const selectedButton = useRef<HTMLButtonElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState(false);
@@ -324,7 +316,13 @@ function RiskyOrders({ model }: { model: RiskModel }) {
           render: (o) => (
             <button
               className="button secondary small"
-              onClick={() => setSelected(o)}
+              aria-expanded={selected?.order_id === o.order_id}
+              onClick={(event) => {
+                selectedButton.current = event.currentTarget;
+                setSelected((current) =>
+                  current?.order_id === o.order_id ? null : o,
+                );
+              }}
             >
               <SlidersHorizontal size={13} />
               Simulate action
@@ -349,7 +347,6 @@ function RiskyOrders({ model }: { model: RiskModel }) {
   return (
     <section className="dashboard-section risk-orders">
       <SectionHeading
-        icon={late ? Truck : MessageSquare}
         title={
           late
             ? "In-transit orders at risk of late delivery"
@@ -415,13 +412,6 @@ function RiskyOrders({ model }: { model: RiskModel }) {
             </button>
           </Notice>
         )}
-        {selected && (
-          <HandlingPanel
-            order={selected}
-            key={selected.order_id}
-            onClose={() => setSelected(null)}
-          />
-        )}
         {loading ? (
           <DataState status="loading" />
         ) : error ? (
@@ -440,6 +430,17 @@ function RiskyOrders({ model }: { model: RiskModel }) {
             label={late ? "Late-delivery orders" : "Low-rating orders"}
             rowClassName={(o) =>
               o.order_id === selected?.order_id ? "selected-row" : ""
+            }
+            expandedRow={(o) =>
+              o.order_id === selected?.order_id && (
+                <HandlingPanel
+                  order={o}
+                  onClose={() => {
+                    setSelected(null);
+                    selectedButton.current?.focus();
+                  }}
+                />
+              )
             }
           />
         )}
@@ -516,19 +517,11 @@ function CampaignTargeting() {
   };
   return (
     <section className="dashboard-section">
-      <SectionHeading
-        icon={Users}
-        title="Assign customers to a care campaign"
-      />
+      <SectionHeading title="Assign customers to a care campaign" />
       <div className="surface targeting-panel">
         <PanelHeading
           title="Turn a risk signal into a care follow-up"
           description="Assign customers above the selected risk threshold. Each assignment is handled by the backend."
-          aside={
-            <span className="kpi-icon violet">
-              <Users size={19} />
-            </span>
-          }
         />
         {campaigns === null && !error ? (
           <DataState status="loading" />
@@ -680,7 +673,6 @@ function ModelQuality() {
   return (
     <section className="dashboard-section">
       <SectionHeading
-        icon={ShieldCheck}
         title="Model quality & validation results"
         aside="Jun–Aug 2018 validation set"
       />
@@ -693,8 +685,8 @@ function ModelQuality() {
           />
         </div>
       ) : (
-        <>
-          <div className="surface table-panel">
+        <div className="surface quality-group">
+          <div className="table-panel">
             <PanelHeading
               title="Validation metrics"
               description="Metrics returned by the backend for each model version"
@@ -710,7 +702,7 @@ function ModelQuality() {
               <DataState status="empty" title="No model metrics available" />
             )}
           </div>
-          <div className="surface table-panel">
+          <div className="table-panel">
             <PanelHeading
               title="Observed outcomes by risk level"
               description="Known outcomes in the validation set, grouped by model and risk level"
@@ -751,7 +743,7 @@ function ModelQuality() {
           </div>
           <div className="feature-grid">
             {MODELS.map((m, i) => (
-              <div className="surface chart-panel" key={m}>
+              <div className="chart-panel" key={m}>
                 <PanelHeading
                   title={`${MODEL_LABEL[m]} feature importance`}
                   description="Change in PR-AUC when a feature is permuted"
@@ -792,6 +784,7 @@ function ModelQuality() {
                         />
                         <Bar
                           dataKey="importance"
+                          maxBarSize={20}
                           radius={[0, 4, 4, 0]}
                           fill={i === 0 ? "#3974ec" : "#8290e9"}
                           isAnimationActive={false}
@@ -805,7 +798,7 @@ function ModelQuality() {
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
     </section>
   );
@@ -814,9 +807,8 @@ export default function OpsConsole() {
   return (
     <div className="ops-page">
       <PageHeading
-        eyebrow={["OPERATIONS", "CUSTOMER CARE"]}
         title="Ops Console"
-        description="Prioritize at-risk orders. Explore the next best step."
+        sourceDescription="Risk queues, model metrics and simulations are returned by the configured backend. Simulations do not save changes to orders. Campaign assignments are saved through the campaign API."
       />
       <RiskyOrders model="late_delivery" />
       <RiskyOrders model="low_review" />

@@ -1,14 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  ChevronDown,
-  Info,
-  MapPin,
-  Package,
-  RotateCcw,
-  ShieldCheck,
-  Star,
-  Truck,
-} from "lucide-react";
+import { ChevronDown, Info, RotateCcw, ShieldCheck } from "lucide-react";
 import {
   api,
   type PredictInput,
@@ -116,7 +107,6 @@ function ResultView({
       </p>
       {history && (
         <div className="route-history">
-          <MapPin size={17} />
           <div>
             <strong>Route history</strong>
             <p>
@@ -220,13 +210,9 @@ function ToolCard({
       if (request === generation.current) setBusy(false);
     }
   };
-  const Icon = late ? Truck : Star;
   return (
     <section className="surface predictor-card">
       <div className="predictor-card-heading">
-        <span className={`kpi-icon ${late ? "blue" : "amber"}`}>
-          <Icon size={20} />
-        </span>
         <div>
           <h2>{late ? "Late delivery risk" : "Low rating risk (≤ 2 stars)"}</h2>
           <p>
@@ -249,17 +235,13 @@ function ToolCard({
       {result ? (
         <ResultView result={result} model={model} />
       ) : (
-        <div className="prediction-placeholder" role="status">
-          <span className="state-icon">
-            <ShieldCheck size={26} className={busy ? "spin" : ""} />
-          </span>
-          <h3>{busy ? "Requesting prediction…" : "Ready to predict"}</h3>
-          <p>
+        !error && (
+          <p className="prediction-initial" role="status">
             {busy
-              ? "Waiting for the backend response."
+              ? "Requesting prediction… Waiting for the backend response."
               : "Review the order details, then select Predict to request a risk estimate."}
           </p>
-        </div>
+        )
       )}
     </section>
   );
@@ -407,9 +389,8 @@ export default function RiskPredictor() {
   return (
     <div className="predictor-page">
       <PageHeading
-        eyebrow={["DECISION SUPPORT", "ORDER RISK EXPLORER"]}
         title="Predict risk for an order"
-        description="Explore delivery risk and customer satisfaction using the trained model behind your API."
+        sourceDescription="Predictions, risk thresholds and route history come from the configured backend. Blank optional values use backend defaults. Changing an input clears both results, including requests still in progress."
         actions={
           <button className="button secondary" onClick={reset}>
             <RotateCcw size={16} />
@@ -419,9 +400,6 @@ export default function RiskPredictor() {
       />
       <div className="surface order-details">
         <div className="predictor-card-heading">
-          <span className="kpi-icon blue">
-            <Package size={21} />
-          </span>
           <div>
             <h2>Order details</h2>
             <p>
@@ -584,7 +562,7 @@ export default function RiskPredictor() {
           extra={
             <>
               <label className="form-field">
-                Carrier handoff date
+                <span>Carrier handoff date</span>
                 <input
                   type="date"
                   aria-label="Carrier handoff date"
@@ -596,7 +574,7 @@ export default function RiskPredictor() {
                 </span>
               </label>
               <label className="form-field">
-                Handoff deadline (days after purchase)
+                <span>Handoff deadline (days after purchase)</span>
                 <input
                   type="number"
                   aria-label="Handoff deadline (days after purchase)"
@@ -638,7 +616,7 @@ export default function RiskPredictor() {
           buildExtra={() => ({ delivered_date: toDate(deliveredDate) })}
           extra={
             <label className="form-field">
-              Actual delivery date
+              <span>Actual delivery date</span>
               <input
                 type="date"
                 aria-label="Actual delivery date"

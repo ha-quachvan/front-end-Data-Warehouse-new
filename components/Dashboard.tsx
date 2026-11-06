@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -9,46 +9,65 @@ import {
   Info,
   LoaderCircle,
   RotateCcw,
-  type LucideIcon,
 } from "lucide-react";
 
 export function PageHeading({
-  eyebrow,
   title,
-  description,
+  sourceDescription,
   actions,
 }: {
-  eyebrow: [string, string];
   title: string;
-  description: string;
+  sourceDescription: string;
   actions?: ReactNode;
 }) {
+  const source = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const outside = (event: PointerEvent) => {
+      if (source.current && !source.current.contains(event.target as Node)) {
+        source.current.open = false;
+      }
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && source.current?.open) {
+        source.current.open = false;
+        source.current.querySelector("summary")?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, []);
   return (
     <div className="page-heading">
-      <div>
-        <div className="eyebrow">
-          {eyebrow[0]} <span>/</span> {eyebrow[1]}
-        </div>
+      <div className="page-title">
         <h1>{title}</h1>
-        <p>{description}</p>
+        <details className="source-info" ref={source}>
+          <summary aria-label="Data source information">
+            <span /> API data <Info size={13} aria-hidden="true" />
+          </summary>
+          <div className="source-description">
+            <strong>Data source</strong>
+            <p>{sourceDescription}</p>
+          </div>
+        </details>
       </div>
       {actions && <div className="page-actions">{actions}</div>}
     </div>
   );
 }
 export function SectionHeading({
-  icon: Icon,
   title,
   aside,
 }: {
-  icon: LucideIcon;
   title: string;
   aside?: ReactNode;
 }) {
   return (
     <div className="section-heading">
       <div className="section-title">
-        <Icon size={19} aria-hidden="true" />
         <h2>{title}</h2>
       </div>
       {aside && <span className="section-note">{aside}</span>}
@@ -198,12 +217,14 @@ export function DataTable<T>({
   rowKey,
   label,
   rowClassName,
+  expandedRow,
 }: {
   rows: T[];
   columns: Column<T>[];
   rowKey: (row: T) => string;
   label: string;
   rowClassName?: (row: T) => string;
+  expandedRow?: (row: T) => ReactNode;
 }) {
   const [sort, setSort] = useState<{ key: string; direction: 1 | -1 } | null>(
     null,
@@ -269,15 +290,27 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((row) => (
-            <tr key={rowKey(row)} className={rowClassName?.(row)}>
-              {columns.map((c) => (
-                <td key={c.key} className={c.numeric ? "numeric" : ""}>
-                  {c.render ? c.render(row) : (c.value(row) ?? "—")}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {sorted.map((row) => {
+            const detail = expandedRow?.(row);
+            return (
+              <Fragment key={rowKey(row)}>
+                <tr className={rowClassName?.(row)}>
+                  {columns.map((c) => (
+                    <td key={c.key} className={c.numeric ? "numeric" : ""}>
+                      {c.render ? c.render(row) : (c.value(row) ?? "—")}
+                    </td>
+                  ))}
+                </tr>
+                {detail && (
+                  <tr className="expanded-row">
+                    <td colSpan={columns.length} className="expansion-cell">
+                      <div className="expanded-content">{detail}</div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>

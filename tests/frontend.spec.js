@@ -376,6 +376,9 @@ test("campaign create edit detail delete and target cleanup", async ({
   await expect(
     page.getByText("No customers assigned yet.", { exact: false }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Create campaign", exact: true })
+    .click();
   await page.getByLabel("Campaign name").fill("Priority support");
   await page.getByLabel("Campaign description").fill("Test description");
   await page
@@ -670,5 +673,244 @@ test("manual optional inputs are sent when the backend supplies no default polic
     total_freight: null,
     payment_type: null,
     carrier_date: null,
+  });
+});
+
+test("campaign creation opens on demand, keeps failed inputs and prevents closing during a save", async ({
+  page,
+}) => {
+  let finish;
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
+  let saves = 0;
+  await page.route("**/campaigns", async (route) => {
+    if (route.request().method() !== "POST" || ++saves > 1) {
+      await route.fallback();
+      return;
+    }
+    await gate;
+    await route.fulfill({
+      status: 409,
+      json: { detail: "Campaign name already exists." },
+    });
+  });
+  await page.goto("/#/campaigns");
+  const opener = page.getByRole("button", {
+    name: "Create campaign",
+    exact: true,
+  });
+  await expect(page.getByLabel("Campaign name", { exact: true })).toHaveCount(
+    0,
+  );
+  await opener.click();
+  await expect(page.getByLabel("Campaign name", { exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(opener).toBeFocused();
+  await opener.click();
+  await page
+    .getByLabel("Campaign name", { exact: true })
+    .fill("Customer follow-up");
+  await page
+    .getByLabel("Campaign description", { exact: true })
+    .fill("Keep this text after an API error.");
+  await page
+    .getByRole("button", { name: "Create campaign", exact: true })
+    .click();
+  await expect(page.getByRole("button", { name: "Close form" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Cancel", exact: true }),
+  ).toBeDisabled();
+  finish();
+  await expect(page.getByRole("alert")).toContainText(
+    "Campaign name already exists.",
+  );
+  await expect(page.getByLabel("Campaign name", { exact: true })).toHaveValue(
+    "Customer follow-up",
+  );
+  await expect(
+    page.getByLabel("Campaign description", { exact: true }),
+  ).toHaveValue("Keep this text after an API error.");
+  await page
+    .getByRole("button", { name: "Create campaign", exact: true })
+    .click();
+  await expect(
+    page.getByRole("cell", { name: "Customer follow-up", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Campaign name", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(opener).toBeFocused();
+  expect(saves).toBe(2);
+});
+
+test("manager retains all 27 states and reflows chart comparisons on mobile", async ({
+  page,
+}) => {
+  const states = [
+    "SP",
+    "RJ",
+    "MG",
+    "RS",
+    "PR",
+    "SC",
+    "BA",
+    "DF",
+    "GO",
+    "ES",
+    "PE",
+    "CE",
+    "PA",
+    "MT",
+    "MS",
+    "MA",
+    "PB",
+    "PI",
+    "RN",
+    "AL",
+    "SE",
+    "RO",
+    "TO",
+    "AM",
+    "AC",
+    "AP",
+    "RR",
+  ];
+  await page.route("**/dashboard/revenue-trend*", (route) =>
+    route.fulfill({
+      json: states.map((state, i) => ({
+        ...revenue[0],
+        state,
+        total_revenue: (27 - i) * 10000,
+      })),
+    }),
+  );
+  await page.goto("/#/manager");
+  const ranking = page.getByRole("region", { name: "Revenue for all states" });
+  await expect(ranking.locator(".recharts-bar-rectangle")).toHaveCount(27);
+  await expect(page.getByText("27 states", { exact: true })).toBeVisible();
+  const comparisons = [
+    page.locator(".revenue-grid"),
+    page.locator(".delivery-grid"),
+  ];
+  for (const grid of comparisons) {
+    const first = await grid
+      .locator(":scope > .chart-panel")
+      .nth(0)
+      .boundingBox();
+    const second = await grid
+      .locator(":scope > .chart-panel")
+      .nth(1)
+      .boundingBox();
+    expect(Math.abs(first.y - second.y)).toBeLessThan(2);
+    expect(second.x).toBeGreaterThan(first.x);
+  }
+  await ranking.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(
+    ranking.getByText("Roraima (RR)", { exact: true }),
+  ).toBeInViewport();
+  await page.setViewportSize({ width: 390, height: 1000 });
+  for (const grid of comparisons) {
+    const first = await grid
+      .locator(":scope > .chart-panel")
+      .nth(0)
+      .boundingBox();
+    const second = await grid
+      .locator(":scope > .chart-panel")
+      .nth(1)
+      .boundingBox();
+    expect(second.y).toBeGreaterThan(first.y + first.height - 2);
+  }
+  await expect(page.locator(".kpi-card").first()).toContainText("13,494,401");
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBeTruthy();
+  await page.screenshot({
+    path: "/tmp/olist-manager-all-states-mobile.png",
+    fullPage: true,
+  });
+});
+
+test("data source help opens by keyboard and closes with Escape without leaving its tab", async ({
+  page,
+}) => {
+  for (const path of ["manager", "ops", "campaigns", "predict"]) {
+    await page.goto("/#/" + path);
+    const source = page.getByLabel("Data source information");
+    await source.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".source-description")).toBeVisible();
+    await expect(page.locator(".source-description")).toContainText(/backend/);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".source-description")).not.toBeVisible();
+    await expect(source).toBeFocused();
+    await expect(page).toHaveURL(new RegExp("#/" + path + "$"));
+  }
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await page.getByLabel("Data source information").click();
+  await expect(page.locator(".source-description")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBeTruthy();
+});
+
+test("expanded order simulations and campaign forms stay usable on narrow screens", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await page.goto("/#/ops");
+  await page.getByRole("button", { name: "Simulate action" }).click();
+  await expect(
+    page.locator(".selected-row + .expanded-row .handling-panel"),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Simulate risk after action" })
+    .click();
+  await expect(page.getByText("12.0%", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close action simulation" }).click();
+  await expect(
+    page.getByRole("button", { name: "Simulate action", exact: true }),
+  ).toBeFocused();
+  await expect(page.locator(".expanded-row")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBeTruthy();
+  await page
+    .getByRole("button", { name: "Assign customers", exact: true })
+    .click();
+  await page.goto("/#/campaigns");
+  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "Care call customers" }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBeTruthy();
+  await page.screenshot({
+    path: "/tmp/olist-campaign-details-mobile.png",
+    fullPage: true,
+  });
+  await page
+    .getByRole("button", { name: "Create campaign", exact: true })
+    .click();
+  await expect(page.getByLabel("Campaign name", { exact: true })).toBeFocused();
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBeTruthy();
+  await page.screenshot({
+    path: "/tmp/olist-campaign-create-mobile.png",
+    fullPage: true,
   });
 });

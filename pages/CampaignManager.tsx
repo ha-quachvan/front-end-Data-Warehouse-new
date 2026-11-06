@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Check,
   ChevronDown,
@@ -82,10 +82,12 @@ function CampaignForm({
   initial,
   onSubmit,
   onCancel,
+  onBusyChange,
 }: {
   initial?: Campaign;
   onSubmit: (name: string, description: string) => Promise<void>;
   onCancel?: () => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [name, setName] = useState(initial?.campaign_name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -96,6 +98,7 @@ function CampaignForm({
     if (!name.trim() || busy) return;
     setError(null);
     setBusy(true);
+    onBusyChange?.(true);
     try {
       await onSubmit(name.trim(), description.trim());
       if (!initial) {
@@ -106,6 +109,7 @@ function CampaignForm({
       setError(String(e));
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   };
   return (
@@ -116,6 +120,7 @@ function CampaignForm({
         </span>
         <input
           aria-label="Campaign name"
+          autoFocus
           required
           maxLength={100}
           placeholder="e.g. Post-delivery check-in"
@@ -289,7 +294,7 @@ function CampaignDetail({
                 </p>
               </div>
             ) : (
-              <div className="surface">
+              <div className="customer-list">
                 <DataTable
                   rows={targets.customers}
                   columns={customerColumns}
@@ -313,6 +318,20 @@ export default function CampaignManager() {
   const [editCode, setEditCode] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const createButton = useRef<HTMLButtonElement>(null);
+  const restoreCreateFocus = useRef(false);
+  const closeCreate = () => {
+    restoreCreateFocus.current = true;
+    setCreateOpen(false);
+  };
+  useEffect(() => {
+    if (!createOpen && !creating && restoreCreateFocus.current) {
+      createButton.current?.focus();
+      restoreCreateFocus.current = false;
+    }
+  }, [createOpen, creating]);
   const reload = () => setAttempt((n) => n + 1);
   useEffect(() => {
     let stale = false;
@@ -355,38 +374,53 @@ export default function CampaignManager() {
   return (
     <div className="campaign-page">
       <PageHeading
-        eyebrow={["CUSTOMER CARE", "CAMPAIGN MANAGEMENT"]}
         title="Customer care campaigns"
-        description="Organize thoughtful follow-ups for customers who may need a little extra care."
+        sourceDescription="Campaigns and assigned customers are read and saved through the configured backend. Ops Console uses the same campaign API. Downloads include the displayed rows and complete identifiers."
+        actions={
+          <button
+            ref={createButton}
+            className={`button ${createOpen ? "secondary" : "primary"}`}
+            aria-expanded={createOpen}
+            aria-controls="campaign-create"
+            disabled={creating}
+            onClick={createOpen ? closeCreate : () => setCreateOpen(true)}
+          >
+            {createOpen ? <X size={16} /> : <Plus size={16} />}
+            {createOpen ? "Close form" : "Create campaign"}
+          </button>
+        }
       />
-      <section className="dashboard-section">
-        <SectionHeading
-          icon={Plus}
-          title="Create campaign"
-          aside="Name required · Description optional"
-        />
-        <div className="surface form-panel">
-          <CampaignForm
-            onSubmit={async (name, description) => {
-              await api.createCampaign(name, description);
-              setMessage(`Created "${name}".`);
-              reload();
-            }}
+      {createOpen && (
+        <section
+          className="campaign-create"
+          id="campaign-create"
+          aria-label="Create campaign"
+        >
+          <SectionHeading
+            title="Create campaign"
+            aside="Name required · Description optional"
           />
-        </div>
-      </section>
+          <div className="surface form-panel">
+            <CampaignForm
+              onCancel={closeCreate}
+              onBusyChange={setCreating}
+              onSubmit={async (name, description) => {
+                await api.createCampaign(name, description);
+                setMessage(`Created "${name}".`);
+                reload();
+                closeCreate();
+              }}
+            />
+          </div>
+        </section>
+      )}
       <section className="dashboard-section">
-        <SectionHeading icon={Users} title="Campaigns" />
+        <SectionHeading title="Campaigns" />
         <div className="surface">
           <div className="table-toolbar">
             <PanelHeading
-              title="Your care campaigns"
+              title={`${campaigns?.length ?? "…"} ${campaigns?.length === 1 ? "campaign" : "campaigns"}`}
               description="View assigned customers or manage a campaign without leaving the list."
-              aside={
-                <span className="small-pill">
-                  {campaigns?.length ?? 0} campaigns
-                </span>
-              }
             />
             <div className="list-tools">
               <RowLimit
@@ -421,7 +455,7 @@ export default function CampaignManager() {
             <DataState
               status="empty"
               title="No campaigns yet."
-              description="Create a campaign above to get started."
+              description="Select Create campaign to get started."
             />
           ) : (
             campaigns && (

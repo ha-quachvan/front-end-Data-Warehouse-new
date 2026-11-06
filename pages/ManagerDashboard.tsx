@@ -1,16 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownToLine,
-  BarChart3,
   CalendarDays,
-  Database,
   Info,
-  Package,
   RotateCcw,
-  ShoppingBag,
   Star,
-  Truck,
-  Wallet,
 } from "lucide-react";
 import {
   Area,
@@ -19,6 +13,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -76,6 +71,40 @@ function sumBy(rows: RevenueRow[], key: (row: RevenueRow) => string) {
 const uniq = (values: (string | number | null)[]) =>
   [...new Set(values.filter((v) => v !== null).map(String))].sort();
 const numeric = (v: number) => Number(v).toFixed(1);
+function DelayTick({
+  x = 0,
+  y = 0,
+  payload,
+}: {
+  x?: number | string;
+  y?: number | string;
+  payload?: { value: string };
+}) {
+  const label = delayBucketName(payload?.value ?? "");
+  const lines =
+    label === "On time"
+      ? [label]
+      : label
+          .replace("At least ", "≥")
+          .replace("More than ", ">")
+          .replace(" days", "d")
+          .split(/ (?=early|late)/);
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor="middle"
+      className="delay-tick"
+      aria-label={label}
+    >
+      {lines.map((line, i) => (
+        <tspan key={i} x={x} dy={i === 0 ? 15 : 16}>
+          {line}
+        </tspan>
+      ))}
+    </text>
+  );
+}
 const routeColumns: Column<DeliveryRoute>[] = [
   {
     key: "seller",
@@ -227,7 +256,6 @@ function DeliverySection() {
   return (
     <section className="dashboard-section">
       <SectionHeading
-        icon={Truck}
         title="Delivery & customer satisfaction"
         aside="Full dataset"
       />
@@ -244,140 +272,149 @@ function DeliverySection() {
         </div>
       ) : (
         <>
-          <div className="surface chart-panel">
-            <PanelHeading
-              title="Delivery delays & low ratings over time"
-              description="Share of orders by purchase month · Low rating = 1 or 2 stars"
-              aside={
-                <ChartLegend
-                  items={[
-                    { label: "Late delivery", color: "#ee8a55" },
-                    { label: "Low rating", color: "#2563eb" },
-                  ]}
-                />
-              }
-            />
-            {!trend.length ? (
-              <DataState status="empty" />
-            ) : (
-              <div className="chart chart-satisfaction">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={trend}
-                    margin={{ top: 10, right: 15, left: 0, bottom: 4 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 4" vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      tickFormatter={monthLabel}
-                      tick={axisStyle}
-                      tickLine={false}
-                      axisLine={false}
-                      minTickGap={40}
-                    />
-                    <YAxis
-                      tickFormatter={(v) => percent(v)}
-                      tick={axisStyle}
-                      tickLine={false}
-                      axisLine={false}
-                      width={50}
-                    />
-                    <Tooltip
-                      contentStyle={tooltipStyle}
-                      labelFormatter={(v) => monthLabel(String(v))}
-                      formatter={(v: number, name: string) => [
-                        percent(v),
-                        name,
-                      ]}
-                    />
-                    <Line
-                      name="Late delivery"
-                      type="monotone"
-                      dataKey="late_rate"
-                      stroke="#ee8a55"
-                      dot={false}
-                      strokeWidth={2.5}
-                      isAnimationActive={false}
-                    />
-                    <Line
-                      name="Low rating"
-                      type="monotone"
-                      dataKey="low_review_rate"
-                      stroke="#2563eb"
-                      dot={false}
-                      strokeWidth={2.5}
-                      isAnimationActive={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-          <div className="surface chart-panel delay-panel">
-            <PanelHeading
-              title="Low ratings by delivery delay"
-              description="How delivery timing relates to the share of 1- and 2-star reviews"
-            />
-            {!data.delay.length ? (
-              <DataState status="empty" />
-            ) : (
-              <div className="chart chart-delay">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={data.delay}
-                    margin={{ top: 8, right: 12, left: 0, bottom: 6 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 4" vertical={false} />
-                    <XAxis
-                      dataKey="bucket"
-                      tickFormatter={delayBucketName}
-                      tick={axisStyle}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      tickFormatter={(v) => percent(v)}
-                      domain={[0, 1]}
-                      tick={axisStyle}
-                      tickLine={false}
-                      axisLine={false}
-                      width={50}
-                    />
-                    <Tooltip
-                      contentStyle={tooltipStyle}
-                      labelFormatter={(v) => delayBucketName(String(v))}
-                      formatter={(v: number) => [percent(v), "Low rating rate"]}
-                    />
-                    <Bar
-                      dataKey="low_review_rate"
-                      radius={[5, 5, 0, 0]}
-                      isAnimationActive={false}
-                      maxBarSize={85}
+          <div className="surface delivery-grid">
+            <div className="chart-panel">
+              <PanelHeading
+                title="Delivery delays & low ratings over time"
+                description="Share of orders by purchase month · Low rating = 1 or 2 stars"
+                aside={
+                  <ChartLegend
+                    items={[
+                      { label: "Late delivery", color: "#ee8a55" },
+                      { label: "Low rating", color: "#2563eb" },
+                    ]}
+                  />
+                }
+              />
+              {!trend.length ? (
+                <DataState status="empty" />
+              ) : (
+                <div className="chart chart-satisfaction">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={trend}
+                      margin={{ top: 10, right: 15, left: 0, bottom: 4 }}
                     >
-                      {data.delay.map((r, i) => (
-                        <Cell
-                          key={r.bucket}
-                          fill={
-                            i === data.delay.length - 1
-                              ? "#2563eb"
-                              : i > 2
-                                ? "#5185ed"
-                                : "#95b5fa"
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+                      <CartesianGrid strokeDasharray="3 4" vertical={false} />
+                      <XAxis
+                        dataKey="label"
+                        tickFormatter={monthLabel}
+                        tick={axisStyle}
+                        tickLine={false}
+                        axisLine={false}
+                        minTickGap={40}
+                      />
+                      <YAxis
+                        tickFormatter={(v) => percent(v)}
+                        tick={axisStyle}
+                        tickLine={false}
+                        axisLine={false}
+                        width={50}
+                      />
+                      <Tooltip
+                        contentStyle={tooltipStyle}
+                        labelFormatter={(v) => monthLabel(String(v))}
+                        formatter={(v: number, name: string) => [
+                          percent(v),
+                          name,
+                        ]}
+                      />
+                      <Line
+                        name="Late delivery"
+                        type="monotone"
+                        dataKey="late_rate"
+                        stroke="#ee8a55"
+                        dot={false}
+                        strokeWidth={2.5}
+                        isAnimationActive={false}
+                      />
+                      <Line
+                        name="Low rating"
+                        type="monotone"
+                        dataKey="low_review_rate"
+                        stroke="#2563eb"
+                        dot={false}
+                        strokeWidth={2.5}
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+            <div className="chart-panel delay-panel">
+              <PanelHeading
+                title="Low ratings by delivery delay"
+                description="How delivery timing relates to the share of 1- and 2-star reviews"
+              />
+              {!data.delay.length ? (
+                <DataState status="empty" />
+              ) : (
+                <div className="chart chart-delay">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={data.delay}
+                      margin={{ top: 8, right: 12, left: 0, bottom: 6 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 4" vertical={false} />
+                      <XAxis
+                        dataKey="bucket"
+                        tick={<DelayTick />}
+                        tickLine={false}
+                        axisLine={false}
+                        interval={0}
+                        height={52}
+                      />
+                      <YAxis
+                        tickFormatter={(v) => percent(v)}
+                        domain={[0, 1]}
+                        tick={axisStyle}
+                        tickLine={false}
+                        axisLine={false}
+                        width={50}
+                      />
+                      <Tooltip
+                        contentStyle={tooltipStyle}
+                        labelFormatter={(v) => delayBucketName(String(v))}
+                        formatter={(v: number) => [
+                          percent(v),
+                          "Low rating rate",
+                        ]}
+                      />
+                      <Bar
+                        dataKey="low_review_rate"
+                        radius={[5, 5, 0, 0]}
+                        isAnimationActive={false}
+                        maxBarSize={85}
+                      >
+                        {data.delay.map((r, i) => (
+                          <Cell
+                            key={r.bucket}
+                            fill={
+                              i === data.delay.length - 1
+                                ? "#2563eb"
+                                : i > 2
+                                  ? "#5185ed"
+                                  : "#95b5fa"
+                            }
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
           </div>
           <div className="surface table-panel">
             <PanelHeading
               title="Top 10 routes by late delivery rate"
               description="Seller state → customer state · Routes with at least 200 orders"
               aside={
-                <span className="small-pill">{data.routes.length} routes</span>
+                <span className="small-pill">
+                  {data.routes.length}{" "}
+                  {data.routes.length === 1 ? "route" : "routes"}
+                </span>
               }
             />
             {!data.routes.length ? (
@@ -524,9 +561,8 @@ export default function ManagerDashboard() {
   return (
     <div className="manager-page">
       <PageHeading
-        eyebrow={["OVERVIEW", "BUSINESS INTELLIGENCE"]}
         title="Manager Dashboard"
-        description="A clear view of revenue, delivery performance, and customer satisfaction."
+        sourceDescription="KPIs, revenue, delivery and review data are loaded from the configured backend. Revenue filters apply to the two revenue charts; KPI cards and delivery analysis use the full dataset."
         actions={
           <>
             <span className="date-pill">
@@ -565,45 +601,32 @@ export default function ManagerDashboard() {
             label: "Total revenue",
             value: kpi ? money(Number(kpi.total_revenue)) : "—",
             note: "Total product sales",
-            icon: Wallet,
-            color: "blue",
           },
           {
             label: "Total orders",
             value: kpi ? count(kpi.total_orders) : "—",
             note: "Across all purchase periods",
-            icon: ShoppingBag,
-            color: "violet",
           },
           {
             label: "Average order value",
             value: kpi ? money(Number(kpi.aov), 2) : "—",
             note: "Revenue per order",
-            icon: Package,
-            color: "cyan",
           },
           {
             label: "Average rating",
             value: kpi ? Number(kpi.avg_review_score).toFixed(2) : "—",
             suffix: "/ 5",
             note: "Customer review score",
-            icon: Star,
-            color: "amber",
           },
           {
             label: "Late delivery rate",
             value: kpi ? percent(kpi.late_delivery_rate) : "—",
             note: "Delivered after estimated date",
-            icon: Truck,
-            color: "rose",
           },
-        ].map(({ label, value, suffix, note, icon: Icon, color }) => (
+        ].map(({ label, value, suffix, note }) => (
           <article className="kpi-card" key={label}>
             <div className="kpi-top">
               <span>{label}</span>
-              <span className={`kpi-icon ${color}`}>
-                <Icon size={18} />
-              </span>
             </div>
             <div className="kpi-value">
               {value}
@@ -615,14 +638,8 @@ export default function ManagerDashboard() {
       </section>
       <section className="dashboard-section">
         <SectionHeading
-          icon={BarChart3}
           title="Revenue over time & by region"
-          aside={
-            <>
-              <Database size={13} />
-              Product revenue · BRL
-            </>
-          }
+          aside="Product revenue · BRL"
         />
         <div className="surface">
           <div className="filter-bar">
@@ -683,7 +700,7 @@ export default function ManagerDashboard() {
               title="No revenue matches the selected filters."
             />
           ) : (
-            <>
+            <div className="revenue-grid">
               <div className="chart-panel">
                 <PanelHeading
                   title="Revenue trend"
@@ -758,28 +775,43 @@ export default function ManagerDashboard() {
                   title="Revenue by state"
                   description="Customer location, ranked by total revenue"
                   aside={
-                    <span className="small-pill">{states.length} states</span>
+                    <span className="small-pill">
+                      {states.length} {states.length === 1 ? "state" : "states"}
+                    </span>
                   }
                 />
-                <div className="chart chart-states">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div
+                  className="state-scroll"
+                  role="region"
+                  aria-label="Revenue for all states"
+                  tabIndex={0}
+                >
+                  <ResponsiveContainer
+                    width="100%"
+                    height={Math.max(72, states.length * 36)}
+                  >
                     <BarChart
                       data={states}
-                      margin={{ top: 10, right: 12, left: 0, bottom: 4 }}
+                      layout="vertical"
+                      margin={{ top: 5, right: 68, left: 0, bottom: 5 }}
                     >
-                      <CartesianGrid vertical={false} strokeDasharray="3 4" />
+                      <CartesianGrid horizontal={false} strokeDasharray="3 4" />
                       <XAxis
-                        dataKey="label"
+                        type="number"
+                        hide
                         tick={axisStyle}
                         tickLine={false}
                         axisLine={false}
                       />
                       <YAxis
-                        tickFormatter={compactMoney}
+                        type="category"
+                        dataKey="label"
+                        tickFormatter={stateName}
                         tick={axisStyle}
                         tickLine={false}
                         axisLine={false}
-                        width={76}
+                        width={158}
+                        interval={0}
                       />
                       <Tooltip
                         contentStyle={tooltipStyle}
@@ -788,8 +820,8 @@ export default function ManagerDashboard() {
                       />
                       <Bar
                         dataKey="total_revenue"
-                        radius={[4, 4, 0, 0]}
-                        maxBarSize={37}
+                        radius={[0, 4, 4, 0]}
+                        maxBarSize={14}
                         isAnimationActive={false}
                       >
                         {states.map((s, i) => (
@@ -798,32 +830,37 @@ export default function ManagerDashboard() {
                             fill={i === 0 ? "#2563eb" : "#6596f0"}
                           />
                         ))}
+                        <LabelList
+                          dataKey="total_revenue"
+                          position="right"
+                          formatter={compactMoney}
+                          className="state-value"
+                        />
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
                 <p className="chart-footnote">
-                  Hover over a bar for the full state name.
+                  All {states.length} {states.length === 1 ? "state" : "states"}{" "}
+                  shown.
+                  {states.length > 8 && " Scroll to view the full ranking."}
                 </p>
               </div>
-            </>
+            </div>
           )}
         </div>
       </section>
       <DeliverySection />
       <section className="dashboard-section products-section">
-        <SectionHeading
-          icon={Package}
-          title="Product performance"
-          aside="Full dataset"
-        />
+        <SectionHeading title="Product performance" aside="Full dataset" />
         <div className="surface table-panel">
           <PanelHeading
             title="10 lowest-revenue products"
             description="Products ranked by total revenue, from lowest to highest"
             aside={
               <span className="small-pill">
-                {slowProducts?.length ?? 0} products
+                {slowProducts?.length ?? 0}{" "}
+                {slowProducts?.length === 1 ? "product" : "products"}
               </span>
             }
           />

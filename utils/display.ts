@@ -37,7 +37,7 @@ export const dateLabel = (value: string | null) => {
         timeZone: "UTC",
       });
 };
-export const axisStyle = { fontSize: 11, fill: "#7b899c" };
+export const axisStyle = { fontSize: 12, fill: "#64748b" };
 export const tooltipStyle = {
   border: "1px solid #e2e8f0",
   borderRadius: 8,
